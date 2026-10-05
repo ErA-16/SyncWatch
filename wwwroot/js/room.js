@@ -605,6 +605,9 @@ video.addEventListener("error", () => {
 let controlTimeout = null;
 let isFullscreen = false;
 
+const playerContainer = document.getElementById("player-container");
+const fullscreenBtn = document.getElementById("fullscreen-btn");
+
 function updateFullscreenState() {
   isFullscreen = inFullscreen();
   if (!isFullscreen) {
@@ -709,13 +712,10 @@ document.getElementById("close-room-btn").addEventListener("click", async () => 
     window.location.href = "index.html";
   } catch (err) {
     showToast(err.message || "Could not close the room.");
-  }
-});
+}
+;
 
 // --- Fullscreen ---
-
-const playerContainer = document.getElementById("player-container");
-const fullscreenBtn = document.getElementById("fullscreen-btn");
 
 function isTouchDevice() {
   return window.matchMedia("(pointer: coarse)").matches;
