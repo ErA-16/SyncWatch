@@ -1,11 +1,13 @@
 ﻿// room.js — logic for room.html
 
-const params = new URLSearchParams(window.location.search);
-const roomCode = (params.get("code") || "").toUpperCase();
+// --- Session bootstrap ------------------------------------------------------
 
-const creds = SyncWatchStorage.load(roomCode);
+const params = new URLSearchParams(window.location.search);
+const roomCode = (params.get("code") || "").trim().toUpperCase();
+const creds = roomCode ? SyncWatchStorage.load(roomCode) : null;
+
 if (!roomCode || !creds) {
-  window.location.href = `index.html`;
+  window.location.replace("index.html");
   throw new Error("No stored credentials for this room — redirecting.");
 }
 
@@ -22,14 +24,36 @@ const participantListEl = document.getElementById("participant-list");
 const participantCountEl = document.getElementById("participant-count");
 const toastEl = document.getElementById("toast");
 const roomCodeDisplay = document.getElementById("room-code-display");
+const copyInviteBtn = document.getElementById("copy-invite-btn");
+const closeRoomBtn = document.getElementById("close-room-btn");
+const chatBox = document.getElementById("chat-box");
+const chatInput = document.getElementById("chat-input");
+const chatSendBtn = document.getElementById("chat-send-btn");
+const playerContainer = document.getElementById("player-container");
+const fullscreenBtn = document.getElementById("fullscreen-btn");
 
 roomCodeDisplay.textContent = roomCode;
 
-let roomData = null;      // last GetRoom() response
+// --- Sync tuning constants --------------------------------------------------
+
+const HAVE_METADATA = 1;
+const HAVE_FUTURE_DATA = 3;
+const ROOM_POLL_MS = 4000;
+const SERVER_TICK_SECONDS = 5;
+const HARD_SEEK_THRESHOLD_SECONDS = 8;
+const SOFT_SYNC_DEADBAND_SECONDS = 0.4;
+const PLAYBACK_RATE_MIN = 0.92;
+const PLAYBACK_RATE_MAX = 1.08;
+const PLAYBACK_RATE_GAIN = 0.25;
+const OWN_ECHO_WINDOW_MS = 2500;
+const RESUME_SEEK_TOLERANCE_SECONDS = 0.5;
+
+// --- Mutable sync state -----------------------------------------------------
+
+let roomData = null;
 let currentMovieId = null;
 let userIsScrubbing = false;
-let playbackStateExists = false;   // true once a real PlaybackState has been created server-side (first Play)
-
+let playbackStateExists = false;
 let lastAppliedVersion = -1;
 let lastCommandVersion = -1;
 let serverStatus = null;
@@ -42,46 +66,25 @@ let warnedAboutStatus = false;
 let ownEchoExpected = false;
 let ownEchoPosition = null;
 let ownEchoTimer = null;
+let lastRoomSignature = null;
+let roomRefreshInFlight = false;
+let roomPollTimer = null;
+let toastTimer = null;
+let controlTimeout = null;
+let hideControlsTimer = null;
+let isFullscreen = false;
+let leavingIntentionally = false;
 
-const SERVER_TICK_SECONDS = 5;
-const HARD_SEEK_THRESHOLD_SECONDS = 8;
-const SOFT_SYNC_DEADBAND_SECONDS = 0.4;
-const PLAYBACK_RATE_MIN = 0.92;
-const PLAYBACK_RATE_MAX = 1.08;
-const PLAYBACK_RATE_GAIN = 0.25;
-const OWN_ECHO_WINDOW_MS = 2500;
-const RESUME_SEEK_TOLERANCE_SECONDS = 0.5;
-
-const HAVE_METADATA = 1;
-const HAVE_FUTURE_DATA = 3;
-
-function normalizeStatus(value) {
-  if (value === "Playing" || value === "Paused") return value;
-  if (value === 0 || value === "0") return "Playing";
-  if (value === 1 || value === "1") return "Paused";
-  return null;
-}
-
-// --- Toast ---
+// --- Toast ------------------------------------------------------------------
 
 function showToast(message) {
   toastEl.textContent = message;
   toastEl.classList.add("show");
-  setTimeout(() => toastEl.classList.remove("show"), 2200);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2200);
 }
 
-// --- Invite copy ---
-
-document.getElementById("copy-invite-btn").addEventListener("click", async () => {
-  try {
-    await navigator.clipboard.writeText(roomCode);
-    showToast("Room code copied");
-  } catch {
-    showToast(`Room code: ${roomCode}`);
-  }
-});
-
-// --- Time formatting ---
+// --- Position helpers -------------------------------------------------------
 
 function formatTime(totalSeconds) {
   const s = Math.max(0, Math.floor(totalSeconds || 0));
@@ -112,15 +115,22 @@ function hasEnoughData() {
   return video.readyState >= HAVE_FUTURE_DATA;
 }
 
-async function invokeTimed(method, position, ...args) {
-  const startedAt = performance.now();
-  expectOwnEcho(position);
-  try {
-    return await connection.invoke(method, ...args);
-  } finally {
-    const rtt = performance.now() - startedAt;
-    smoothedRttMs = smoothedRttMs * 0.7 + rtt * 0.3;
-  }
+function normalizeStatus(value) {
+  if (value === "Playing" || value === "Paused") return value;
+  if (value === 0 || value === "0") return "Playing";
+  if (value === 1 || value === "1") return "Paused";
+  return null;
+}
+
+// --- SignalR connection -----------------------------------------------------
+
+const connection = new signalR.HubConnectionBuilder()
+  .withUrl("/hubs/playback")
+  .withAutomaticReconnect()
+  .build();
+
+function isConnected() {
+  return connection.state === signalR.HubConnectionState.Connected;
 }
 
 // Every command we send is broadcast straight back to us by the Hub. That echo
@@ -152,12 +162,25 @@ function consumeOwnEcho(isFreshCommand, position) {
   return wasOurs;
 }
 
-// --- Load room state (episodes, participants) ---
+// The Hub methods take (roomId, request) — nothing else. The local `position`
+// argument here is only for own-echo tracking and must never be sent over the wire.
+async function invokeTimed(method, position, ...args) {
+  if (!isConnected()) {
+    showToast("Still reconnecting — try again in a moment.");
+    throw new Error("Not connected to the room.");
+  }
 
-const ROOM_POLL_MS = 4000;
-let roomPollTimer = null;
-let lastRoomSignature = null;
-let roomRefreshInFlight = false;
+  expectOwnEcho(position);
+  const startedAt = performance.now();
+  try {
+    return await connection.invoke(method, ...args);
+  } finally {
+    const rtt = performance.now() - startedAt;
+    smoothedRttMs = smoothedRttMs * 0.7 + rtt * 0.3;
+  }
+}
+
+// --- Room state (collection + participants) ----------------------------------
 
 function roomSignature(data) {
   const people = data.participants
@@ -169,6 +192,79 @@ function roomSignature(data) {
     .sort()
     .join(",");
   return `${people}#${movies}`;
+}
+
+function renderEpisodes() {
+  if (!roomData) return;
+
+  const movies = [...roomData.movies].sort((a, b) => a.episodeNumber - b.episodeNumber);
+  episodeCountEl.textContent = movies.length;
+
+  // A single uploaded file isn't really "episode 1" of anything.
+  const showEpisodeNumbers = movies.length > 1;
+
+  episodeListEl.innerHTML = "";
+
+  if (movies.length === 0) {
+    const empty = document.createElement("p");
+    empty.textContent = "Nothing uploaded yet.";
+    episodeListEl.appendChild(empty);
+    return;
+  }
+
+  movies.forEach(m => {
+    const row = document.createElement("div");
+    row.className = "episode-row" + (m.id === currentMovieId ? " active" : "");
+    row.dataset.movieId = m.id;
+
+    const left = document.createElement("span");
+    if (showEpisodeNumbers) {
+      const epNum = document.createElement("span");
+      epNum.className = "ep-num";
+      epNum.textContent = `${m.episodeNumber} `;
+      left.appendChild(epNum);
+    }
+    // title is a user-controlled filename — textContent, never innerHTML
+    left.appendChild(document.createTextNode(m.title));
+
+    const timeEl = document.createElement("span");
+    timeEl.className = "time";
+    timeEl.textContent = m.duration > 0 ? formatTime(m.duration) : "--:--";
+
+    row.append(left, timeEl);
+    row.addEventListener("click", () => selectEpisode(m.id));
+    episodeListEl.appendChild(row);
+  });
+}
+
+function renderParticipants() {
+  if (!roomData) return;
+
+  participantCountEl.textContent = roomData.participants.length;
+  participantListEl.innerHTML = "";
+
+  roomData.participants.forEach(p => {
+    const row = document.createElement("div");
+    row.className = "participant-row";
+
+    const dot = document.createElement("span");
+    dot.className = "dot" + (p.status === "Online" ? " online" : "");
+
+    // user-controlled — textContent, not innerHTML
+    const nameEl = document.createElement("span");
+    nameEl.textContent = p.displayName || "Guest";
+
+    row.append(dot, nameEl);
+
+    if (p.isHost) {
+      const hostTag = document.createElement("span");
+      hostTag.className = "host-tag";
+      hostTag.textContent = "Host";
+      row.appendChild(hostTag);
+    }
+
+    participantListEl.appendChild(row);
+  });
 }
 
 async function refreshRoom() {
@@ -210,87 +306,16 @@ async function loadRoom() {
   renderEpisodes();
   renderParticipants();
 
-  if (creds.isHost) {
-    document.getElementById("close-room-btn").style.display = "inline-block";
-  }
+  closeRoomBtn.style.display = creds.isHost ? "inline-block" : "none";
 }
 
-function renderEpisodes() {
-  const movies = [...roomData.movies].sort((a, b) => a.episodeNumber - b.episodeNumber);
-  episodeCountEl.textContent = movies.length;
+// --- Hub wiring -------------------------------------------------------------
 
-  const showEpisodeNumbers = movies.length > 1; // a single uploaded file isn't really "episode 1" of anything
-
-  episodeListEl.innerHTML = "";
-
-  if (movies.length === 0) {
-    episodeListEl.innerHTML = "<p>Nothing uploaded yet.</p>";
-    return;
-  }
-
-  movies.forEach(m => {
-    const row = document.createElement("div");
-    row.className = "episode-row" + (m.id === currentMovieId ? " active" : "");
-    row.dataset.movieId = m.id;
-
-    const left = document.createElement("span");
-    if (showEpisodeNumbers) {
-      const epNum = document.createElement("span");
-      epNum.className = "ep-num";
-      epNum.textContent = `${m.episodeNumber} `;
-      left.appendChild(epNum);
-    }
-    left.appendChild(document.createTextNode(m.title)); // title is a user-controlled filename — textContent, never innerHTML
-
-    const timeEl = document.createElement("span");
-    timeEl.className = "time";
-    timeEl.textContent = m.duration > 0 ? formatTime(m.duration) : "--:--";
-
-    row.append(left, timeEl);
-    row.addEventListener("click", () => selectEpisode(m.id));
-    episodeListEl.appendChild(row);
-  });
-}
-
-function renderParticipants() {
-  participantCountEl.textContent = roomData.participants.length;
-  participantListEl.innerHTML = "";
-
-  roomData.participants.forEach(p => {
-    const row = document.createElement("div");
-    row.className = "participant-row";
-
-    const dot = document.createElement("span");
-    dot.className = "dot" + (p.status === "Online" ? " online" : "");
-
-    const nameEl = document.createElement("span");
-    nameEl.textContent = p.displayName || "Guest"; // user-controlled — textContent, not innerHTML
-
-    row.append(dot, nameEl);
-
-    if (p.isHost) {
-      const hostTag = document.createElement("span");
-      hostTag.className = "host-tag";
-      hostTag.textContent = "Host";
-      row.appendChild(hostTag);
-    }
-
-    participantListEl.appendChild(row);
-  });
-}
-
-// --- SignalR connection ---
-
-const connection = new signalR.HubConnectionBuilder()
-  .withUrl("/hubs/playback")
-  .withAutomaticReconnect()
-  .build();
-
-connection.on("PlaybackUpdated", (state) => {
+connection.on("PlaybackUpdated", state => {
   applyServerState(state);
 });
 
-connection.on("ChatMessageReceived", (msg) => {
+connection.on("ChatMessageReceived", msg => {
   appendChatMessage(msg.displayName, msg.message);
 });
 
@@ -303,33 +328,46 @@ connection.onreconnecting(() => {
 });
 
 connection.onreconnected(async () => {
-  await connection.invoke("Reconnect", creds.roomId, creds.token);
-  await SyncWatchAPI.reconnectRoom(creds.token);
-  await refreshRoom();
-  showToast("Reconnected");
+  try {
+    await connection.invoke("Reconnect", creds.roomId, creds.token);
+    await SyncWatchAPI.reconnectRoom(creds.token);
+    await refreshRoom();
+    showToast("Reconnected");
+  } catch (err) {
+    console.warn("Rejoin failed:", err);
+    showToast("Reconnected, but could not rejoin the room.");
+  }
+});
+
+connection.onclose(() => {
+  showToast("Disconnected — reload to rejoin.");
 });
 
 async function startConnection() {
   try {
-    await connection.start();
+    if (connection.state === signalR.HubConnectionState.Disconnected) {
+      await connection.start();
+    }
     await connection.invoke("Join", creds.roomId, creds.token);
   } catch (err) {
+    console.warn("Connection attempt failed:", err);
     showToast("Could not connect — retrying…");
     setTimeout(startConnection, 3000);
   }
 }
 
-window.addEventListener("pagehide", (event) => {
+window.addEventListener("pagehide", event => {
   if (event.persisted) return;
+  if (leavingIntentionally) return;
   SyncWatchAPI.leaveRoom(creds.token);
 });
 
-window.addEventListener("pageshow", (event) => {
+window.addEventListener("pageshow", event => {
   if (!event.persisted) return;
   SyncWatchAPI.reconnectRoom(creds.token).then(refreshRoom);
 });
 
-// --- Applying server state to the local video element ---
+// --- Applying server state to the local video element -----------------------
 
 function applyServerState(state) {
   const version = Number.isFinite(state.version) ? state.version : 0;
@@ -367,9 +405,11 @@ function applyServerState(state) {
     if (isOwnEcho && serverStatus === "Playing" && hasMetadata()) {
       setTarget(clampPosition(safePosition(video.currentTime)));
     } else {
+      // The server's position was measured half an RTT ago; add it back so
+      // playback lands where the host actually is, not where they were.
       const compensated = serverStatus === "Playing"
-          ? rawPosition + smoothedRttMs / 2000
-          : rawPosition;
+        ? rawPosition + smoothedRttMs / 2000
+        : rawPosition;
       setTarget(clampPosition(compensated));
       applyPosition(targetPosition);
     }
@@ -425,11 +465,16 @@ function projectedTarget() {
   return clampPosition(targetPosition + elapsed);
 }
 
+// Nudge playbackRate instead of seeking whenever we're only slightly off, so
+// ordinary drift never costs a re-buffer.
 function softSyncStep() {
   const target = projectedTarget();
   if (target === null) return;
   if (userIsScrubbing || video.paused || video.seeking) return;
-  if (!hasEnoughData()) { resetPlaybackRate(); return; }
+  if (!hasEnoughData()) {
+    resetPlaybackRate();
+    return;
+  }
 
   const drift = video.currentTime - target;
 
@@ -462,34 +507,32 @@ async function ensurePlaying() {
       autoplayBlocked = true;
       showToast("Browser blocked autoplay — press play.");
     } else if (name === "AbortError") {
+      // play() was interrupted by a pause or a new load — not an error worth surfacing
     } else {
       showToast("Could not start playback.");
     }
   }
 }
 
-// --- Local controls, each sends a command to the Hub ---
+// --- Local controls, each sends a command to the Hub ------------------------
+
+function playbackCommand(movieId, position) {
+  return { movieId, position: safePosition(position) };
+}
 
 async function sendPlay() {
-  await invokeTimed("Play", video.currentTime, creds.roomId, {
-    movieId: currentMovieId,
-    position: safePosition(video.currentTime)
-  });
+  const position = safePosition(video.currentTime);
+  await invokeTimed("Play", position, creds.roomId, playbackCommand(currentMovieId, position));
 }
 
 async function sendPause() {
   const position = safePosition(video.currentTime, isUsablePosition(video.duration) ? video.duration : 0);
-  await invokeTimed("Pause", position, creds.roomId, {
-    movieId: currentMovieId,
-    position
-  });
+  await invokeTimed("Pause", position, creds.roomId, playbackCommand(currentMovieId, position));
 }
 
 async function sendSeek(position) {
-  await invokeTimed("Seek", position, creds.roomId, {
-    movieId: currentMovieId,
-    position: safePosition(position)
-  });
+  const target = clampPosition(position);
+  await invokeTimed("Seek", target, creds.roomId, playbackCommand(currentMovieId, target));
 }
 
 // Called when a user clicks an episode row. Two different cases:
@@ -521,6 +564,7 @@ playPauseBtn.addEventListener("click", async () => {
     showToast("Pick something to watch first.");
     return;
   }
+
   try {
     if (video.paused) {
       if (hasMetadata()) {
@@ -547,34 +591,65 @@ playPauseBtn.addEventListener("click", async () => {
 
 skipBackBtn.addEventListener("click", async () => {
   if (!currentMovieId) return;
-  await sendSeek(Math.max(0, safePosition(video.currentTime) - 10));
+  try {
+    await sendSeek(safePosition(video.currentTime) - 10);
+  } catch (err) {
+    showToast(err.message || "Could not skip back.");
+  }
 });
 
 skipFwdBtn.addEventListener("click", async () => {
   if (!currentMovieId) return;
-  await sendSeek(safePosition(video.currentTime) + 10);
+  try {
+    await sendSeek(safePosition(video.currentTime) + 10);
+  } catch (err) {
+    showToast(err.message || "Could not skip forward.");
+  }
 });
 
-seekBar.addEventListener("mousedown", () => { userIsScrubbing = true; showControls(); });
-seekBar.addEventListener("touchstart", () => { userIsScrubbing = true; showControls(); });
-video.addEventListener("mousedown", showControls);
-video.addEventListener("touchstart", showControls);
-video.addEventListener("play", showControls);
-video.addEventListener("pause", showControls);
+function seekFromBar() {
+  if (!isUsablePosition(video.duration)) return null;
+  return clampPosition((Number(seekBar.value) / 100) * video.duration);
+}
+
+seekBar.addEventListener("pointerdown", () => {
+  userIsScrubbing = true;
+  showControls();
+});
 
 seekBar.addEventListener("input", () => {
   userIsScrubbing = true;
   if (isUsablePosition(video.duration)) {
-    timeCurrent.textContent = formatTime((seekBar.value / 100) * video.duration);
+    timeCurrent.textContent = formatTime((Number(seekBar.value) / 100) * video.duration);
   }
 });
 
 seekBar.addEventListener("change", async () => {
   userIsScrubbing = false;
   if (!currentMovieId) return;
-  if (!isUsablePosition(video.duration)) return;
-  await sendSeek((seekBar.value / 100) * video.duration);
+  const target = seekFromBar();
+  if (target === null) return;
+  try {
+    await sendSeek(target);
+  } catch (err) {
+    showToast(err.message || "Could not seek.");
+  }
 });
+
+// A drag can end anywhere — pointerup on the window, not the bar. Without this
+// userIsScrubbing stays true forever and soft sync silently stops correcting drift.
+window.addEventListener("pointerup", () => {
+  if (userIsScrubbing) userIsScrubbing = false;
+});
+
+window.addEventListener("pointercancel", () => {
+  userIsScrubbing = false;
+});
+
+video.addEventListener("click", showControls);
+video.addEventListener("touchstart", showControls);
+video.addEventListener("play", showControls);
+video.addEventListener("pause", showControls);
 
 video.addEventListener("loadedmetadata", () => {
   if (pendingSeekPosition !== null) {
@@ -600,35 +675,26 @@ video.addEventListener("error", () => {
   showToast(code === 4 ? "This video format isn't supported by your browser." : "Video failed to load.");
 });
 
-// --- Auto-hide playback controls ---
+// --- Auto-hide playback controls -------------------------------------------
 
-let controlTimeout = null;
-let isFullscreen = false;
-
-const playerContainer = document.getElementById("player-container");
-const fullscreenBtn = document.getElementById("fullscreen-btn");
-
-function updateFullscreenState() {
-  isFullscreen = inFullscreen();
-  if (!isFullscreen) {
-    clearTimeout(controlTimeout);
-    controlTimeout = null;
-  }
+function inFullscreen() {
+  return document.fullscreenElement === playerContainer
+    || document.webkitFullscreenElement === playerContainer
+    || video.webkitDisplayingFullscreen;
 }
-
-updateFullscreenState();
-window.addEventListener("fullscreenchange", updateFullscreenState);
-window.addEventListener("webkitfullscreenchange", updateFullscreenState);
 
 function showControls() {
   const controls = document.querySelector(".controls");
   if (!controls) return;
+
   clearTimeout(controlTimeout);
+  clearTimeout(hideControlsTimer);
+
   controls.style.transition = "opacity 0.3s ease";
   controls.style.opacity = "1";
   controls.style.display = "";
 
-  if (isFullscreen) {
+  if (inFullscreen()) {
     controlTimeout = setTimeout(hideControls, 10000);
   }
 }
@@ -636,13 +702,14 @@ function showControls() {
 function hideControls() {
   const controls = document.querySelector(".controls");
   if (!controls) return;
-  if (!isFullscreen) {
-    controlTimeout = null;
-    return;
-  }
+
+  controlTimeout = null;
+  if (!inFullscreen()) return;
+
   controls.style.transition = "opacity 0.3s ease";
   controls.style.opacity = "0";
-  setTimeout(() => {
+
+  hideControlsTimer = setTimeout(() => {
     controls.style.display = "none";
     controls.style.opacity = "1";
   }, 300);
@@ -652,79 +719,19 @@ video.addEventListener("timeupdate", () => {
   softSyncStep();
 
   if (userIsScrubbing) return;
+
   timeCurrent.textContent = formatTime(video.currentTime);
   timeTotal.textContent = formatTime(video.duration);
-  if (isUsablePosition(video.duration)) {
+
+  if (isUsablePosition(video.duration) && video.duration > 0) {
     seekBar.value = (video.currentTime / video.duration) * 100;
   }
 });
 
-// --- Chat ---
-
-const chatBox = document.getElementById("chat-box");
-const chatInput = document.getElementById("chat-input");
-const chatSendBtn = document.getElementById("chat-send-btn");
-
-function appendChatMessage(displayName, message) {
-  // built with textContent, not innerHTML — both displayName and message are
-  // user-typed and broadcast to the other participant, so neither should be
-  // interpreted as HTML (that's how a <script> in a chat message would run)
-  const row = document.createElement("div");
-  row.className = "chat-msg";
-
-  const nameEl = document.createElement("b");
-  nameEl.textContent = displayName;
-
-  const textEl = document.createElement("span");
-  textEl.className = "text";
-  textEl.textContent = message;
-
-  row.append(nameEl, textEl);
-  chatBox.appendChild(row);
-  chatBox.scrollTop = chatBox.scrollHeight;
-}
-
-async function sendChatMessage() {
-  const text = chatInput.value.trim();
-  if (!text) return;
-  chatInput.value = "";
-  try {
-    await connection.invoke("SendMessage", creds.roomId, creds.displayName, text);
-  } catch (err) {
-    showToast("Message failed to send.");
-  }
-}
-
-chatSendBtn.addEventListener("click", sendChatMessage);
-chatInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") sendChatMessage();
-});
-
-// --- Close room (host only) ---
-
-document.getElementById("close-room-btn").addEventListener("click", async () => {
-  const confirmed = confirm("Close this room? This deletes it and its uploaded movies for both of you — this can't be undone.");
-  if (!confirmed) return;
-
-  try {
-    await SyncWatchAPI.closeRoom(creds.roomId, creds.token);
-    localStorage.removeItem(`syncwatch:${roomCode}`);
-    window.location.href = "index.html";
-  } catch (err) {
-    showToast(err.message || "Could not close the room.");
-}
-;
-
-// --- Fullscreen ---
+// --- Fullscreen -------------------------------------------------------------
 
 function isTouchDevice() {
   return window.matchMedia("(pointer: coarse)").matches;
-}
-
-function inFullscreen() {
-  return document.fullscreenElement === playerContainer
-    || document.webkitFullscreenElement === playerContainer
-    || video.webkitDisplayingFullscreen;
 }
 
 async function lockLandscape() {
@@ -744,16 +751,28 @@ function unlockOrientation() {
 }
 
 async function syncFullscreenState() {
-  const active = inFullscreen();
-  fullscreenBtn.innerHTML = active ? "&#10005;" : "&#9974;";
-  fullscreenBtn.title = active ? "Exit fullscreen" : "Fullscreen";
+  isFullscreen = inFullscreen();
+
+  fullscreenBtn.innerHTML = isFullscreen ? "&#10005;" : "&#9974;";
+  fullscreenBtn.title = isFullscreen ? "Exit fullscreen" : "Fullscreen";
   fullscreenBtn.setAttribute("aria-label", fullscreenBtn.title);
-  if (!active) {
+
+  if (!isFullscreen) {
     unlockOrientation();
+    const controls = document.querySelector(".controls");
+    if (controls) {
+      clearTimeout(controlTimeout);
+      clearTimeout(hideControlsTimer);
+      controls.style.display = "";
+      controls.style.opacity = "1";
+    }
     return;
   }
+
   const locked = await lockLandscape();
   if (!locked && isTouchDevice()) showToast("Rotate your device for the best view.");
+
+  showControls();
 }
 
 fullscreenBtn.addEventListener("click", async () => {
@@ -767,43 +786,115 @@ fullscreenBtn.addEventListener("click", async () => {
       if (exit) await exit.call(document);
       return;
     }
+
     const request = playerContainer.requestFullscreen || playerContainer.webkitRequestFullscreen;
     if (request) {
       await request.call(playerContainer, { navigationUI: "hide" });
       if (!inFullscreen()) showToast("Could not enter fullscreen.");
       return;
     }
+
     if (video.webkitEnterFullscreen) {
       video.webkitEnterFullscreen();
       return;
     }
+
     showToast("Fullscreen is not supported on this browser.");
   } catch {
     showToast("Could not enter fullscreen.");
   }
 });
 
+// Registered once on document — these events all bubble from the element up to
+// document, and window additionally sees them, so a single handler is enough.
 document.addEventListener("fullscreenchange", syncFullscreenState);
 document.addEventListener("webkitfullscreenchange", syncFullscreenState);
 video.addEventListener("webkitbeginfullscreen", syncFullscreenState);
 video.addEventListener("webkitendfullscreen", syncFullscreenState);
 
-syncFullscreenState();
-
 video.addEventListener("ended", async () => {
   if (!currentMovieId) return;
   resetPlaybackRate();
   try {
-    await invokeTimed("Advance", 0, creds.roomId, {
-      movieId: currentMovieId,
-      position: 0
-    });
+    await invokeTimed("Advance", 0, creds.roomId, { movieId: currentMovieId, position: 0 });
   } catch (err) {
     console.warn("Advance request failed:", err);
   }
 });
 
-// --- Boot ---
+// --- Chat -------------------------------------------------------------------
+
+function appendChatMessage(displayName, message) {
+  // Built with textContent, not innerHTML — both displayName and message are
+  // user-typed and broadcast to the other participant, so neither should be
+  // interpreted as HTML (that's how a <script> in a chat message would run).
+  const row = document.createElement("div");
+  row.className = "chat-msg";
+
+  const nameEl = document.createElement("b");
+  nameEl.textContent = displayName || "Guest";
+
+  const textEl = document.createElement("span");
+  textEl.className = "text";
+  textEl.textContent = message;
+
+  row.append(nameEl, textEl);
+  chatBox.appendChild(row);
+  chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+async function sendChatMessage() {
+  const text = chatInput.value.trim();
+  if (!text) return;
+  if (!isConnected()) {
+    showToast("Not connected — message not sent.");
+    return;
+  }
+
+  chatInput.value = "";
+  try {
+    await connection.invoke("SendMessage", creds.roomId, creds.displayName || "Guest", text);
+  } catch (err) {
+    showToast("Message failed to send.");
+  }
+}
+
+chatSendBtn.addEventListener("click", sendChatMessage);
+chatInput.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendChatMessage();
+  }
+});
+
+// --- Invite copy ------------------------------------------------------------
+
+copyInviteBtn.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(roomCode);
+    showToast("Room code copied");
+  } catch {
+    showToast(`Room code: ${roomCode}`);
+  }
+});
+
+// --- Close room (host only) -------------------------------------------------
+
+closeRoomBtn.addEventListener("click", async () => {
+  const confirmed = confirm("Close this room? This deletes it and its uploaded movies for both of you — this can't be undone.");
+  if (!confirmed) return;
+
+  try {
+    await SyncWatchAPI.closeRoom(creds.roomId, creds.token);
+    leavingIntentionally = true;
+    localStorage.removeItem(`syncwatch:${roomCode}`);
+    window.location.replace("index.html");
+  } catch (err) {
+    showToast(err.message || "Could not close the room.");
+  }
+});
+
+// --- Boot -------------------------------------------------------------------
 
 (async function init() {
   try {

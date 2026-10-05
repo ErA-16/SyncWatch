@@ -16,11 +16,13 @@ function getStoredRooms() {
   const rooms = [];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (key && key.startsWith("syncwatch:")) {
-      const code = key.slice("syncwatch:".length);
-      const data = JSON.parse(localStorage.getItem(key));
-      rooms.push({ code, ...data });
-    }
+    if (!key || !key.startsWith("syncwatch:")) continue;
+
+    const code = key.slice("syncwatch:".length);
+    // load() swallows and clears a corrupted entry — a raw JSON.parse here would
+    // throw and take down the entire list, hiding every other remembered room.
+    const data = SyncWatchStorage.load(code);
+    if (data) rooms.push({ code, ...data });
   }
   return rooms;
 }
@@ -75,7 +77,7 @@ function render() {
         if (!confirm(`Close room ${room.code}? This deletes it and its movies for everyone — can't be undone.`)) return;
         try {
           await SyncWatchAPI.closeRoom(room.roomId, room.token);
-          localStorage.removeItem(`syncwatch:${room.code}`);
+          SyncWatchStorage.remove(room.code);
           render();
         } catch (err) {
           showToast(err.message || "Could not delete — it may already be gone.");
@@ -88,7 +90,7 @@ function render() {
       forgetBtn.textContent = "Forget";
       forgetBtn.title = "Just removes it from this list — doesn't close the room (only the host can)";
       forgetBtn.addEventListener("click", () => {
-        localStorage.removeItem(`syncwatch:${room.code}`);
+        SyncWatchStorage.remove(room.code);
         render();
       });
       row.appendChild(forgetBtn);

@@ -5,6 +5,32 @@
 
 const API_BASE = "";
 
+async function readError(res, fallback) {
+  // The API returns bare strings from BadRequest()/NotFound(), so read as text
+  // first — calling res.json() on a plain-text body throws a SyntaxError that
+  // hides the actual server message from the user.
+  const body = await res.text().catch(() => "");
+  if (!body) return fallback;
+
+  try {
+    const parsed = JSON.parse(body);
+    if (typeof parsed === "string") return parsed;
+    return parsed.title || parsed.error || parsed.message || fallback;
+  } catch {
+    return body;
+  }
+}
+
+async function readJson(res, fallback) {
+  const body = await res.text().catch(() => "");
+  if (!body) return fallback;
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw new Error(fallback);
+  }
+}
+
 const SyncWatchAPI = {
   async createRoom(hostName) {
     const res = await fetch(`${API_BASE}/api/Room/create-room`, {
@@ -12,8 +38,8 @@ const SyncWatchAPI = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ hostName })
     });
-    if (!res.ok) throw new Error(await res.text() || "Could not create room.");
-    return res.json(); // { roomId, roomCode, participantId, token }
+    if (!res.ok) throw new Error(await readError(res, "Could not create room."));
+    return readJson(res, null); // { roomId, roomCode, participantId, token }
   },
 
   async joinRoom(roomCode, displayName) {
@@ -22,14 +48,14 @@ const SyncWatchAPI = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ roomCode, displayName: displayName || null })
     });
-    if (!res.ok) throw new Error(await res.text() || "Could not join room.");
-    return res.json(); // { roomId, participantId, token }
+    if (!res.ok) throw new Error(await readError(res, "Could not join room."));
+    return readJson(res, null); // { roomId, participantId, token }
   },
 
   async getRoom(code) {
-    const res = await fetch(`${API_BASE}/api/Room/${code}`);
-    if (!res.ok) throw new Error(await res.text() || "Room not found.");
-    return res.json(); // { roomId, code, status, participants[], movies[] }
+    const res = await fetch(`${API_BASE}/api/Room/${encodeURIComponent(code)}`);
+    if (!res.ok) throw new Error(await readError(res, "Room not found."));
+    return readJson(res, null); // { roomId, code, status, participants[], movies[] }
   },
 
   async uploadMovie(roomId, file) {
@@ -39,8 +65,8 @@ const SyncWatchAPI = {
       method: "POST",
       body: form
     });
-    if (!res.ok) throw new Error(await res.text() || `Failed to upload ${file.name}.`);
-    return res.json(); // { id, title, episodeNumber }
+    if (!res.ok) throw new Error(await readError(res, `Failed to upload ${file.name}.`));
+    return readJson(res, null); // { id, title, episodeNumber }
   },
 
   streamUrl(movieId) {
@@ -48,11 +74,12 @@ const SyncWatchAPI = {
   },
 
   async leaveRoom(token) {
+    // keepalive lets this survive the page unload that pagehide is riding on.
     await fetch(`${API_BASE}/api/Room/leave`, {
       method: "PATCH",
       headers: { token },
       keepalive: true
-    });
+    }).catch(() => {});
   },
 
   async closeRoom(roomId, hostToken) {
@@ -60,14 +87,16 @@ const SyncWatchAPI = {
       method: "DELETE",
       headers: { hostToken }
     });
-    if (!res.ok && res.status !== 204) throw new Error(await res.text() || "Could not close room.");
+    if (!res.ok && res.status !== 204) {
+      throw new Error(await readError(res, "Could not close room."));
+    }
   },
 
   async reconnectRoom(token) {
     await fetch(`${API_BASE}/api/Room/reconnect`, {
       method: "PATCH",
       headers: { token }
-    });
+    }).catch(() => {});
   }
 };
 
@@ -77,7 +106,17 @@ const SyncWatchStorage = {
     localStorage.setItem(`syncwatch:${code}`, JSON.stringify(data));
   },
   load(code) {
-    const raw = localStorage.getItem(`syncwatch:${code}`);
-    return raw ? JSON.parse(raw) : null;
+    try {
+      const raw = localStorage.getItem(`syncwatch:${code}`);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      // Corrupted entry — drop it so the user lands back on index.html cleanly
+      // instead of crashing on every visit.
+      localStorage.removeItem(`syncwatch:${code}`);
+      return null;
+    }
+  },
+  remove(code) {
+    localStorage.removeItem(`syncwatch:${code}`);
   }
 };

@@ -81,14 +81,12 @@ createBtn.addEventListener("click", async () => {
       isHost: true
     });
 
-    let uploadedCount = 0;
-
-    setStatus(createStatus, `Uploading 1 of ${selectedFiles.length}…`, "");
-    await Promise.all(selectedFiles.map(async (file) => {
-      await SyncWatchAPI.uploadMovie(room.roomId, file);
-      uploadedCount++;
-      setStatus(createStatus, `Uploading ${Math.min(uploadedCount + 1, selectedFiles.length)} of ${selectedFiles.length}…`, "");
-    }));
+    // Sequential on purpose: uploads are large and parallel ones would saturate
+    // the connection for no real gain, and the progress readout stays honest.
+    for (let i = 0; i < selectedFiles.length; i++) {
+      setStatus(createStatus, `Uploading ${i + 1} of ${selectedFiles.length}…`, "");
+      await SyncWatchAPI.uploadMovie(room.roomId, selectedFiles[i]);
+    }
 
     setStatus(createStatus, "Room ready — taking you in…", "ok");
     window.location.href = `room.html?code=${room.roomCode}`;
@@ -126,7 +124,7 @@ joinBtn.addEventListener("click", async () => {
       isHost: false
     });
 
-    window.location.href = `room.html?code=${code}`;
+    window.location.replace(`room.html?code=${code}`);
   } catch (err) {
     setStatus(joinStatus, err.message, "error");
     joinBtn.disabled = false;
