@@ -666,28 +666,80 @@ document.getElementById("close-room-btn").addEventListener("click", async () => 
 // --- Fullscreen ---
 
 const playerContainer = document.getElementById("player-container");
+const fullscreenBtn = document.getElementById("fullscreen-btn");
 
-document.getElementById("fullscreen-btn").addEventListener("click", () => {
-  if (playerContainer.requestFullscreen) playerContainer.requestFullscreen();
-  else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen(); // iOS Safari
-});
+function isTouchDevice() {
+  return window.matchMedia("(pointer: coarse)").matches;
+}
 
-let hideControlsTimer = null;
+function inFullscreen() {
+  return document.fullscreenElement === playerContainer
+    || document.webkitFullscreenElement === playerContainer
+    || video.webkitDisplayingFullscreen;
+}
 
-function showControls() {
-  playerContainer.classList.remove("controls-hidden");
-  clearTimeout(hideControlsTimer);
-  if (document.fullscreenElement === playerContainer) {
-    hideControlsTimer = setTimeout(() => {
-      playerContainer.classList.add("controls-hidden");
-    }, 3000);
+async function lockLandscape() {
+  const orientation = screen.orientation;
+  if (!orientation || typeof orientation.lock !== "function") return false;
+  try {
+    await orientation.lock("landscape");
+    return true;
+  } catch {
+    return false;
   }
 }
-playerContainer.addEventListener("touchstart", showControls);
-playerContainer.addEventListener("mousemove", showControls);
-document.addEventListener("fullscreenchange", () => {
-  showControls();
+
+function unlockOrientation() {
+  const orientation = screen.orientation;
+  if (orientation && typeof orientation.unlock === "function") orientation.unlock();
+}
+
+async function syncFullscreenState() {
+  const active = inFullscreen();
+  fullscreenBtn.innerHTML = active ? "&#10005;" : "&#9974;";
+  fullscreenBtn.title = active ? "Exit fullscreen" : "Fullscreen";
+  fullscreenBtn.setAttribute("aria-label", fullscreenBtn.title);
+  if (!active) {
+    unlockOrientation();
+    return;
+  }
+  const locked = await lockLandscape();
+  if (!locked && isTouchDevice()) showToast("Rotate your device for the best view.");
+}
+
+fullscreenBtn.addEventListener("click", async () => {
+  try {
+    if (inFullscreen()) {
+      if (video.webkitDisplayingFullscreen && video.webkitExitFullscreen) {
+        video.webkitExitFullscreen();
+        return;
+      }
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exit) await exit.call(document);
+      return;
+    }
+    const request = playerContainer.requestFullscreen || playerContainer.webkitRequestFullscreen;
+    if (request) {
+      await request.call(playerContainer, { navigationUI: "hide" });
+      if (!inFullscreen()) showToast("Could not enter fullscreen.");
+      return;
+    }
+    if (video.webkitEnterFullscreen) {
+      video.webkitEnterFullscreen();
+      return;
+    }
+    showToast("Fullscreen is not supported on this browser.");
+  } catch {
+    showToast("Could not enter fullscreen.");
+  }
 });
+
+document.addEventListener("fullscreenchange", syncFullscreenState);
+document.addEventListener("webkitfullscreenchange", syncFullscreenState);
+video.addEventListener("webkitbeginfullscreen", syncFullscreenState);
+video.addEventListener("webkitendfullscreen", syncFullscreenState);
+
+syncFullscreenState();
 
 video.addEventListener("ended", async () => {
   if (!currentMovieId) return;
