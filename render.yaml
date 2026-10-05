@@ -7,7 +7,7 @@ services:
       - key: ASPNETCORE_ENVIRONMENT
         value: Production
       - key: PORT
-        value: 8080
+        value: 10000
     # Uncomment and add your environment secrets below
     # - key: DATABASE_URL
     #   fromDatabase:
