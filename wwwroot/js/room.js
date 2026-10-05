@@ -603,32 +603,46 @@ video.addEventListener("error", () => {
 // --- Auto-hide playback controls ---
 
 let controlTimeout = null;
-let isLandscape = false;
+let isFullscreen = false;
 
-function checkOrientation() {
-  isLandscape = window.matchMedia("(orientation: landscape)").matches;
-}
-
-checkOrientation();
-window.addEventListener("orientationchange", checkOrientation);
-
-video.addEventListener("mousemove", showControls);
-controlsEl.addEventListener("mousemove", showControls);
-
-function hideControls() {
-  if (!isLandscape) {
+function updateFullscreenState() {
+  isFullscreen = inFullscreen();
+  if (!isFullscreen) {
+    clearTimeout(controlTimeout);
     controlTimeout = null;
-    return;
   }
-  const controls = document.querySelector(".controls");
-  if (controls) controls.style.display = "none";
 }
+
+updateFullscreenState();
+window.addEventListener("fullscreenchange", updateFullscreenState);
+window.addEventListener("webkitfullscreenchange", updateFullscreenState);
 
 function showControls() {
   const controls = document.querySelector(".controls");
-  if (controls) controls.style.display = "";
+  if (!controls) return;
   clearTimeout(controlTimeout);
-  controlTimeout = setTimeout(hideControls, 3000);
+  controls.style.transition = "opacity 0.3s ease";
+  controls.style.opacity = "1";
+  controls.style.display = "";
+
+  if (isFullscreen) {
+    controlTimeout = setTimeout(hideControls, 10000);
+  }
+}
+
+function hideControls() {
+  const controls = document.querySelector(".controls");
+  if (!controls) return;
+  if (!isFullscreen) {
+    controlTimeout = null;
+    return;
+  }
+  controls.style.transition = "opacity 0.3s ease";
+  controls.style.opacity = "0";
+  setTimeout(() => {
+    controls.style.display = "none";
+    controls.style.opacity = "1";
+  }, 300);
 }
 
 video.addEventListener("timeupdate", () => {
@@ -1407,29 +1421,46 @@ video.addEventListener("error", () => {
 // --- Auto-hide playback controls ---
 
 let controlTimeout = null;
-let isLandscape = false;
+let isFullscreen = false;
 
-function checkOrientation() {
-  isLandscape = window.matchMedia("(orientation: landscape)").matches;
-}
-
-checkOrientation();
-window.addEventListener("orientationchange", checkOrientation);
-
-function hideControls() {
-  if (!isLandscape) {
+function updateFullscreenState() {
+  isFullscreen = inFullscreen();
+  if (!isFullscreen) {
+    clearTimeout(controlTimeout);
     controlTimeout = null;
-    return;
   }
-  const controls = document.querySelector(".controls");
-  if (controls) controls.style.display = "none";
 }
+
+updateFullscreenState();
+window.addEventListener("fullscreenchange", updateFullscreenState);
+window.addEventListener("webkitfullscreenchange", updateFullscreenState);
 
 function showControls() {
   const controls = document.querySelector(".controls");
-  if (controls) controls.style.display = "";
+  if (!controls) return;
   clearTimeout(controlTimeout);
-  controlTimeout = setTimeout(hideControls, 3000);
+  controls.style.transition = "opacity 0.3s ease";
+  controls.style.opacity = "1";
+  controls.style.display = "";
+
+  if (isFullscreen) {
+    controlTimeout = setTimeout(hideControls, 10000);
+  }
+}
+
+function hideControls() {
+  const controls = document.querySelector(".controls");
+  if (!controls) return;
+  if (!isFullscreen) {
+    controlTimeout = null;
+    return;
+  }
+  controls.style.transition = "opacity 0.3s ease";
+  controls.style.opacity = "0";
+  setTimeout(() => {
+    controls.style.display = "none";
+    controls.style.opacity = "1";
+  }, 300);
 }
 
 video.addEventListener("timeupdate", () => {
