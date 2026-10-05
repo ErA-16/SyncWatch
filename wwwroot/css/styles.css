@@ -263,7 +263,9 @@ video { width: 100%; height: 100%; display: block; background: #000; }
 #player-container:fullscreen .controls.controls--hidden,
 #player-container:-webkit-full-screen .controls.controls--hidden {
   opacity: 0;
-  transform: translateY(100%);
+  /* Slides fully out of the box. translateY(100%) alone can leave a sliver
+     visible because the bar has a bottom padding/border. */
+  transform: translateY(120%);
   pointer-events: none;
   visibility: hidden;
   transition: opacity 0.3s ease, transform 0.3s ease, visibility 0s linear 0.3s;

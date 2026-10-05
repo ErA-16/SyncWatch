@@ -49,6 +49,9 @@ const PLAYBACK_RATE_GAIN = 0.25;
 const OWN_ECHO_WINDOW_MS = 2500;
 const RESUME_SEEK_TOLERANCE_SECONDS = 0.5;
 const CONTROLS_IDLE_MS = 10000;
+// How often to re-check while a hide is blocked but the idle window has
+// already elapsed. Only reached mid-scrub, so a coarse interval is fine.
+const CONTROLS_RECHECK_MS = 400;
 
 // --- Mutable sync state -----------------------------------------------------
 
@@ -74,6 +77,7 @@ let roomPollTimer = null;
 let toastTimer = null;
 let controlTimeout = null;
 let controlsVisible = true;
+let lastActivityAt = Date.now();
 let isFullscreen = false;
 let leavingIntentionally = false;
 
@@ -683,6 +687,17 @@ function inFullscreen() {
     || video.webkitDisplayingFullscreen;
 }
 
+// Any interaction anywhere on the player restamps the idle window. Bound to
+// the container in capture phase so it also catches events on the controls and
+// the video inside it.
+function markActivity() {
+  lastActivityAt = Date.now();
+  // Calls setControlsVisible rather than showControls — showControls restamps
+  // lastActivityAt and would recurse back into here.
+  if (!controlsVisible) setControlsVisible(true);
+  else if (inFullscreen() && !video.paused) scheduleHide();
+}
+
 // The bar is hidden by a CSS class, not inline styles, so the transition and
 // pointer-events handling live in one place (styles.css) and can't drift apart.
 function setControlsVisible(visible) {
@@ -695,39 +710,47 @@ function setControlsVisible(visible) {
   // Only ever auto-hide while actually watching in fullscreen. Outside
   // fullscreen the bar sits under the video and is just page furniture.
   if (visible && inFullscreen() && !video.paused) {
-    controlTimeout = setTimeout(hideControls, CONTROLS_IDLE_MS);
+    scheduleHide();
   }
 }
 
 function showControls() {
+  markActivity();
   setControlsVisible(true);
 }
 
 function hideControls() {
-  // Never hide out from under someone who is actively using the controls.
-  if (userIsScrubbing || controls.matches(":hover")) return;
+  // Never hide out from under someone mid-interaction. This is timestamp-based
+  // rather than a `:hover` test on purpose: :hover latches on touch devices
+  // after a tap and never clears, and it also blocks the hide while the desktop
+  // pointer merely rests near the bottom edge — either way the bar never goes
+  // away, because a vetoed hide schedules no retry.
+  if (userIsScrubbing || Date.now() - lastActivityAt < CONTROLS_IDLE_MS) {
+    scheduleHide();
+    return;
+  }
   setControlsVisible(false);
 }
 
-// Any pointer activity over the player keeps the bar awake. This must also
-// refresh the countdown when the bar is already showing — otherwise movement
-// while hovering the controls never pushes the hide further out, and a bar that
-// was already visible on entering fullscreen would never schedule a hide at all.
-playerContainer.addEventListener("pointermove", () => {
-  if (controlsVisible) {
-    setControlsVisible(true);
-    return;
-  }
-  showControls();
-});
+function scheduleHide() {
+  clearTimeout(controlTimeout);
 
-playerContainer.addEventListener("pointerleave", () => {
-  if (!controlsVisible) return;
-  if (controls.matches(":hover")) return;
-  hideControls();
-});
+  const remaining = CONTROLS_IDLE_MS - (Date.now() - lastActivityAt);
 
-playerContainer.addEventListener("touchstart", showControls, { passive: true });
+  // When already past the idle window but still vetoed (mid-scrub, say) the
+  // remaining time is <= 0. Scheduling 0ms there would re-fire on the next tick
+  // and spin the timer queue forever, so poll on a floor interval instead.
+  controlTimeout = setTimeout(
+    hideControls,
+    remaining > 0 ? remaining : CONTROLS_RECHECK_MS
+  );
+}
+
+// Pointer activity over the player — mouse, pen or touch, one code path — keeps
+// the bar awake and refreshes the countdown even while it's already visible.
+playerContainer.addEventListener("pointermove", markActivity, { passive: true });
+playerContainer.addEventListener("pointerdown", markActivity, { passive: true });
+playerContainer.addEventListener("touchstart", markActivity, { passive: true });
 
 // Keep it visible while paused — nothing to distract from, and hiding the
 // controls on a paused video just looks broken.
