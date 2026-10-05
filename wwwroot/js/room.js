@@ -48,7 +48,8 @@ const PLAYBACK_RATE_MAX = 1.08;
 const PLAYBACK_RATE_GAIN = 0.25;
 const OWN_ECHO_WINDOW_MS = 2500;
 const RESUME_SEEK_TOLERANCE_SECONDS = 0.5;
-const CONTROLS_IDLE_MS = 10000;
+// How long the fullscreen control bar stays up after the last pointer activity.
+const CONTROLS_IDLE_MS = 3000;
 // How often to re-check while a hide is blocked but the idle window has
 // already elapsed. Only reached mid-scrub, so a coarse interval is fine.
 const CONTROLS_RECHECK_MS = 400;
