@@ -20,7 +20,7 @@ The answer I landed on: the server is the only source of truth. Every play, paus
 - 💬 **A small chat panel**, because watching something together felt incomplete without being able to react to it.
 - 📱 **Works properly on a phone**, not just as an afterthought — I rebuilt the mobile layout more than once until it actually felt right to use.
 - 🗑️ **Rooms clean up after themselves** — nothing lingers on a server past a few days of being forgotten.
-- 🌐 **Live Demo:** https://onrender.com
+- 🌐 **Live Demo:** syncwatch-0bmz.onrender.com/index.html
 
 ## How it's built
 
@@ -52,4 +52,4 @@ dotnet run
 ```
 
 ---
-<sub>Built by [Taiwo](https://github.com). Live App: https://onrender.com</sub>
+<sub>Built by [Taiwo](https://github.com). Live App: syncwatch-0bmz.onrender.com/index.html</sub>
