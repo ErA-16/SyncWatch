@@ -20,7 +20,7 @@ The answer I landed on: the server is the only source of truth. Every play, paus
 - 💬 **A small chat panel**, because watching something together felt incomplete without being able to react to it.
 - 📱 **Works properly on a phone**, not just as an afterthought — I rebuilt the mobile layout more than once until it actually felt right to use.
 - 🗑️ **Rooms clean up after themselves** — nothing lingers on a server past a few days of being forgotten.
-- 🌐 **Live Demo.** Try out the application directly at [://onrender.com](https://://onrender.com).
+- 🌐 **Live Demo:** https://onrender.com
 
 ## How it's built
 
@@ -40,7 +40,7 @@ What actually worked was slowing down and designing every piece on paper before 
 
 ## Running it locally
 ```bash
-git clone https://github.com<your-username>/syncwatch.git
+git clone https://github.com/<your-username>/syncwatch.git
 cd syncwatch
 dotnet user-secrets set "ConnectionStrings:DefaultConnection" "<your Postgres connection string>"
 dotnet user-secrets set "R2:AccessKey" "<your R2 access key>"
@@ -52,4 +52,4 @@ dotnet run
 ```
 
 ---
-<sub>Built by [Taiwo](https://github.comErA-16). Live app hosted on [Render](https://://onrender.com).</sub>
+<sub>Built by [Taiwo](https://github.com). Live App: https://onrender.com</sub>
