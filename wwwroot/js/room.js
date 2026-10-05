@@ -30,6 +30,7 @@ const chatBox = document.getElementById("chat-box");
 const chatInput = document.getElementById("chat-input");
 const chatSendBtn = document.getElementById("chat-send-btn");
 const playerContainer = document.getElementById("player-container");
+const controls = document.querySelector(".controls");
 const fullscreenBtn = document.getElementById("fullscreen-btn");
 
 roomCodeDisplay.textContent = roomCode;
@@ -47,6 +48,7 @@ const PLAYBACK_RATE_MAX = 1.08;
 const PLAYBACK_RATE_GAIN = 0.25;
 const OWN_ECHO_WINDOW_MS = 2500;
 const RESUME_SEEK_TOLERANCE_SECONDS = 0.5;
+const CONTROLS_IDLE_MS = 10000;
 
 // --- Mutable sync state -----------------------------------------------------
 
@@ -71,7 +73,7 @@ let roomRefreshInFlight = false;
 let roomPollTimer = null;
 let toastTimer = null;
 let controlTimeout = null;
-let hideControlsTimer = null;
+let controlsVisible = true;
 let isFullscreen = false;
 let leavingIntentionally = false;
 
@@ -626,6 +628,7 @@ seekBar.addEventListener("input", () => {
 
 seekBar.addEventListener("change", async () => {
   userIsScrubbing = false;
+  showControls(); // re-arm the idle countdown after a scrub
   if (!currentMovieId) return;
   const target = seekFromBar();
   if (target === null) return;
@@ -647,9 +650,6 @@ window.addEventListener("pointercancel", () => {
 });
 
 video.addEventListener("click", showControls);
-video.addEventListener("touchstart", showControls);
-video.addEventListener("play", showControls);
-video.addEventListener("pause", showControls);
 
 video.addEventListener("loadedmetadata", () => {
   if (pendingSeekPosition !== null) {
@@ -683,37 +683,56 @@ function inFullscreen() {
     || video.webkitDisplayingFullscreen;
 }
 
-function showControls() {
-  const controls = document.querySelector(".controls");
-  if (!controls) return;
+// The bar is hidden by a CSS class, not inline styles, so the transition and
+// pointer-events handling live in one place (styles.css) and can't drift apart.
+function setControlsVisible(visible) {
+  controls.classList.toggle("controls--hidden", !visible);
+  controlsVisible = visible;
 
   clearTimeout(controlTimeout);
-  clearTimeout(hideControlsTimer);
+  controlTimeout = null;
 
-  controls.style.transition = "opacity 0.3s ease";
-  controls.style.opacity = "1";
-  controls.style.display = "";
-
-  if (inFullscreen()) {
-    controlTimeout = setTimeout(hideControls, 10000);
+  // Only ever auto-hide while actually watching in fullscreen. Outside
+  // fullscreen the bar sits under the video and is just page furniture.
+  if (visible && inFullscreen() && !video.paused) {
+    controlTimeout = setTimeout(hideControls, CONTROLS_IDLE_MS);
   }
 }
 
-function hideControls() {
-  const controls = document.querySelector(".controls");
-  if (!controls) return;
-
-  controlTimeout = null;
-  if (!inFullscreen()) return;
-
-  controls.style.transition = "opacity 0.3s ease";
-  controls.style.opacity = "0";
-
-  hideControlsTimer = setTimeout(() => {
-    controls.style.display = "none";
-    controls.style.opacity = "1";
-  }, 300);
+function showControls() {
+  setControlsVisible(true);
 }
+
+function hideControls() {
+  // Never hide out from under someone who is actively using the controls.
+  if (userIsScrubbing || controls.matches(":hover")) return;
+  setControlsVisible(false);
+}
+
+// Any pointer activity over the player keeps the bar awake. This must also
+// refresh the countdown when the bar is already showing — otherwise movement
+// while hovering the controls never pushes the hide further out, and a bar that
+// was already visible on entering fullscreen would never schedule a hide at all.
+playerContainer.addEventListener("pointermove", () => {
+  if (controlsVisible) {
+    setControlsVisible(true);
+    return;
+  }
+  showControls();
+});
+
+playerContainer.addEventListener("pointerleave", () => {
+  if (!controlsVisible) return;
+  if (controls.matches(":hover")) return;
+  hideControls();
+});
+
+playerContainer.addEventListener("touchstart", showControls, { passive: true });
+
+// Keep it visible while paused — nothing to distract from, and hiding the
+// controls on a paused video just looks broken.
+video.addEventListener("play", showControls);
+video.addEventListener("pause", showControls);
 
 video.addEventListener("timeupdate", () => {
   softSyncStep();
@@ -759,20 +778,16 @@ async function syncFullscreenState() {
 
   if (!isFullscreen) {
     unlockOrientation();
-    const controls = document.querySelector(".controls");
-    if (controls) {
-      clearTimeout(controlTimeout);
-      clearTimeout(hideControlsTimer);
-      controls.style.display = "";
-      controls.style.opacity = "1";
-    }
+    setControlsVisible(true); // never leave it hidden outside fullscreen
     return;
   }
 
   const locked = await lockLandscape();
   if (!locked && isTouchDevice()) showToast("Rotate your device for the best view.");
 
-  showControls();
+  // Re-arm the idle timer on every fullscreen transition so entering fullscreen
+  // always starts a fresh countdown rather than inheriting a stale one.
+  setControlsVisible(true);
 }
 
 fullscreenBtn.addEventListener("click", async () => {
