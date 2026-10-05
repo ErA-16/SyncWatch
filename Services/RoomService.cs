@@ -1,20 +1,26 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Amazon.S3;
+using Amazon.S3.Model;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using SyncWatch.Data;
 using SyncWatch.Dtos;
 using SyncWatch.Models;
 using SyncWatch.Services.Exception;
-using Microsoft.EntityFrameworkCore;
 
 namespace SyncWatch.Services
 {
     public class RoomService : IRoomService
     {
         private readonly DatabaseContext _db;
+        private readonly IAmazonS3 _s3;
+        private readonly string _bucketName;
         private readonly int _maxParticipants;
 
-        public RoomService(DatabaseContext db, IConfiguration configuration)
+        public RoomService(DatabaseContext db, IAmazonS3 s3, IConfiguration configuration)
         {
             _db = db;
+            _s3 = s3;
+            _bucketName = configuration["R2:BucketName"]!;
             _maxParticipants = configuration.GetValue<int>("ParticipantsSettings:MaxParticipants");
         }
 
@@ -110,6 +116,15 @@ namespace SyncWatch.Services
             if (!isHost)
             {
                 throw new ForbiddenException();
+            }
+
+            foreach (var movie in selectedRoom.Movies)
+            {
+                await _s3.DeleteObjectAsync(new DeleteObjectRequest
+                {
+                    BucketName = _bucketName,
+                    Key = movie.StorageLocation
+                });
             }
 
             _db.Rooms.Remove(selectedRoom);
