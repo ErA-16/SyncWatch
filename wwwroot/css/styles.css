@@ -24,7 +24,7 @@ html, body {
   line-height: 1.5;
   min-height: 100%;
   overflow-x: hidden;
-  overscroll-behavior-y: contain;
+  overscroll-behavior-y: auto;
 }
 
 body {

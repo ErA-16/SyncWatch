@@ -554,8 +554,12 @@ skipFwdBtn.addEventListener("click", async () => {
   await sendSeek(safePosition(video.currentTime) + 10);
 });
 
-seekBar.addEventListener("mousedown", () => { userIsScrubbing = true; });
-seekBar.addEventListener("touchstart", () => { userIsScrubbing = true; });
+seekBar.addEventListener("mousedown", () => { userIsScrubbing = true; showControls(); });
+seekBar.addEventListener("touchstart", () => { userIsScrubbing = true; showControls(); });
+video.addEventListener("mousedown", showControls);
+video.addEventListener("touchstart", showControls);
+video.addEventListener("play", showControls);
+video.addEventListener("pause", showControls);
 
 seekBar.addEventListener("input", () => {
   userIsScrubbing = true;
@@ -579,6 +583,7 @@ video.addEventListener("loadedmetadata", () => {
   }
   timeTotal.textContent = formatTime(video.duration);
   if (serverStatus === "Playing") ensurePlaying();
+  showControls();
 });
 
 video.addEventListener("canplay", () => {
@@ -594,7 +599,21 @@ video.addEventListener("error", () => {
   showToast(code === 4 ? "This video format isn't supported by your browser." : "Video failed to load.");
 });
 
-// --- Keep the seek bar, time display, and sync in step with local playback ---
+// --- Auto-hide playback controls ---
+
+let controlTimeout = null;
+
+function hideControls() {
+  const controls = document.querySelector(".controls");
+  if (controls) controls.style.display = "none";
+}
+
+function showControls() {
+  const controls = document.querySelector(".controls");
+  if (controls) controls.style.display = "";
+  clearTimeout(controlTimeout);
+  controlTimeout = setTimeout(hideControls, 3000);
+}
 
 video.addEventListener("timeupdate", () => {
   softSyncStep();
