@@ -611,6 +611,9 @@ function checkOrientation() {
 checkOrientation();
 window.addEventListener("orientationchange", checkOrientation);
 
+video.addEventListener("mousemove", showControls);
+controlsEl.addEventListener("mousemove", showControls);
+
 function hideControls() {
   if (!isLandscape) {
     controlTimeout = null;
