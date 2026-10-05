@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>SyncWatch — Room</title>
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+<div class="room-shell wrap">
+
+  <div class="room-top">
+    <h1 style="font-size:1.1rem; margin:0;">
+      <a href="index.html" style="color:inherit; text-decoration:none;">SyncWatch</a>
+    </h1>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <div class="room-code-pill">
+        Room <b id="room-code-display">-----</b>
+        <button id="copy-invite-btn">Copy invite</button>
+      </div>
+      <button id="close-room-btn" class="secondary" style="display:none; width:auto; min-height:auto; padding:7px 12px; font-size:0.8rem; color:var(--danger); border-color:var(--danger);">Close room</button>
+    </div>
+  </div>
+
+  <div id="player-container">
+    <div class="player-wrap">
+      <video id="player" playsinline></video>
+    </div>
+
+    <div class="controls">
+      <button class="ctrl" id="skip-back-btn" title="Back 10s">&#8634;10</button>
+      <button class="ctrl play" id="play-pause-btn" title="Play/Pause">&#9654;</button>
+      <button class="ctrl" id="skip-fwd-btn" title="Forward 10s">10&#8635;</button>
+      <button class="ctrl" id="fullscreen-btn" title="Fullscreen">&#9974;</button>
+      <span class="time" id="time-current">00:00</span>
+      <input type="range" class="seek" id="seek-bar" min="0" max="100" value="0" />
+      <span class="time" id="time-total">00:00</span>
+    </div>
+  </div>
+
+  <div class="section-title">
+    <h2>Collection</h2>
+    <span class="badge" id="episode-count">0</span>
+  </div>
+  <div id="episode-list"></div>
+
+  <div class="section-title">
+    <h2>In this room</h2>
+    <span class="badge" id="participant-count">0</span>
+  </div>
+  <div id="participant-list"></div>
+
+  <div class="section-title">
+    <h2>Chat</h2>
+  </div>
+  <div class="card chat-box" id="chat-box"></div>
+  <div class="chat-input-row">
+    <input type="text" id="chat-input" placeholder="Say something…" maxlength="300" />
+    <button class="primary" id="chat-send-btn" style="width:auto;">Send</button>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+<script src="js/api.js"></script>
+<script src="js/room.js"></script>
+</body>
+</html>

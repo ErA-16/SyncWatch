@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>SyncWatch</title>
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+<div class="wrap">
+
+  <div class="sync-mark">
+    <svg width="64" height="40" viewBox="0 0 64 40" fill="none">
+      <circle cx="20" cy="20" r="3" fill="var(--accent)" />
+      <circle class="pulse" cx="20" cy="20" r="3" stroke="var(--accent)" stroke-width="1.5" fill="none" />
+      <circle cx="44" cy="20" r="3" fill="var(--accent)" />
+      <circle class="pulse b" cx="44" cy="20" r="3" stroke="var(--accent)" stroke-width="1.5" fill="none" />
+    </svg>
+  </div>
+
+  <h1>SyncWatch</h1>
+  <p>Watch something together, in sync, and chat along the way.</p>
+  <p style="margin-top:-14px;"><a href="myrooms.html" style="color:var(--accent);">My rooms →</a></p>
+
+  <div class="card">
+    <h2>Start a room</h2>
+    <label for="host-name">Your name</label>
+    <input type="text" id="host-name" placeholder="e.g. Taiwo" maxlength="40" />
+
+    <label>Movie files (.mp4 only, 500MB total)</label>
+    <div class="file-drop" id="file-drop">
+      <input type="file" id="movie-files" accept=".mp4" multiple />
+      <span id="file-drop-label">Tap to choose one or more files</span>
+      <div class="file-list" id="file-list"></div>
+    </div>
+
+    <button class="primary" id="create-btn">Create room</button>
+    <div class="status-line" id="create-status"></div>
+  </div>
+
+  <div class="divider">or</div>
+
+  <div class="card">
+    <h2>Join a room</h2>
+    <label for="join-code">Room code</label>
+    <input type="text" id="join-code" placeholder="e.g. T4KQ8" maxlength="5" style="text-transform: uppercase;" />
+    <label for="join-name">Your name (optional)</label>
+    <input type="text" id="join-name" placeholder="e.g. Her" maxlength="40" />
+    <button class="secondary" id="join-btn">Join room</button>
+    <div class="status-line" id="join-status"></div>
+  </div>
+
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/create.js"></script>
+</body>
+</html>
