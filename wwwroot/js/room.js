@@ -556,6 +556,8 @@ skipFwdBtn.addEventListener("click", async () => {
 
 seekBar.addEventListener("mousedown", () => { userIsScrubbing = true; showControls(); });
 seekBar.addEventListener("touchstart", () => { userIsScrubbing = true; showControls(); });
+seekBar.addEventListener("mouseup", () => { userIsScrubbing = false; showControls(); });
+seekBar.addEventListener("touchend", () => { userIsScrubbing = false; showControls(); });
 video.addEventListener("mousedown", showControls);
 video.addEventListener("touchstart", showControls);
 video.addEventListener("play", showControls);
@@ -563,6 +565,7 @@ video.addEventListener("pause", showControls);
 
 seekBar.addEventListener("input", () => {
   userIsScrubbing = true;
+  showControls();
   if (isUsablePosition(video.duration)) {
     timeCurrent.textContent = formatTime((seekBar.value / 100) * video.duration);
   }
@@ -570,6 +573,7 @@ seekBar.addEventListener("input", () => {
 
 seekBar.addEventListener("change", async () => {
   userIsScrubbing = false;
+  showControls();
   if (!currentMovieId) return;
   if (!isUsablePosition(video.duration)) return;
   await sendSeek((seekBar.value / 100) * video.duration);
@@ -601,19 +605,33 @@ video.addEventListener("error", () => {
 
 // --- Auto-hide playback controls ---
 
+const controlsEl = document.querySelector(".controls");
+const CONTROLS_HIDE_DELAY_MS = 3000;
 let controlTimeout = null;
 
+function controlsMayHide() {
+  return !video.paused && !userIsScrubbing && !!currentMovieId;
+}
+
 function hideControls() {
-  const controls = document.querySelector(".controls");
-  if (controls) controls.style.display = "none";
+  if (!controlsMayHide()) {
+    controlTimeout = null;
+    return;
+  }
+  controlsEl.classList.add("hidden");
 }
 
 function showControls() {
-  const controls = document.querySelector(".controls");
-  if (controls) controls.style.display = "";
+  controlsEl.classList.remove("hidden");
   clearTimeout(controlTimeout);
-  controlTimeout = setTimeout(hideControls, 3000);
+  if (!controlsMayHide()) return;
+  controlTimeout = setTimeout(hideControls, CONTROLS_HIDE_DELAY_MS);
 }
+
+video.addEventListener("mousemove", showControls);
+controlsEl.addEventListener("mousemove", showControls);
+controlsEl.addEventListener("mousedown", showControls);
+controlsEl.addEventListener("touchstart", showControls);
 
 video.addEventListener("timeupdate", () => {
   softSyncStep();

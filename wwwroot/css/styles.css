@@ -176,6 +176,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 }
 
 .player-wrap {
+  position: relative;
   background: #000;
   border-radius: var(--radius);
   overflow: hidden;
@@ -185,15 +186,24 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 video { width: 100%; height: 100%; display: block; background: #000; }
 
 .controls {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(23, 27, 34, 0.92);
+  border: none;
+  border-top: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
   padding: 12px 14px;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
-  margin-bottom: 20px;
+  transition: opacity 0.25s ease, visibility 0.25s;
+}
+.controls.hidden {
+  opacity: 0;
+  visibility: hidden;
 }
 .controls button.ctrl {
   width: 44px; height: 44px; min-height: 44px; padding: 0;
@@ -226,17 +236,12 @@ video { width: 100%; height: 100%; display: block; background: #000; }
 #player-container:-webkit-full-screen video { object-fit: contain; }
 #player-container:fullscreen .controls,
 #player-container:-webkit-full-screen .controls {
-  flex: 0 0 auto;
-  margin-bottom: 0;
-  border-radius: 0;
-  border-left: none;
-  border-right: none;
-  border-bottom: none;
-  background: rgba(23, 27, 34, 0.92);
-  max-width: 860px;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
   width: 100%;
-  margin-left: auto;
-  margin-right: auto;
+  max-width: 860px;
+  border-radius: 0;
 }
 
 .seek {
