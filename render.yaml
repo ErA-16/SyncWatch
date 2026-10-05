@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: syncwatch
+    env: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: PORT
+        value: 8080
+    # Uncomment and add your environment secrets below
+    # - key: DATABASE_URL
+    #   fromDatabase:
+    #     name: syncwatch_db
+    #     property: connectionString
