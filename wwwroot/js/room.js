@@ -602,8 +602,20 @@ video.addEventListener("error", () => {
 // --- Auto-hide playback controls ---
 
 let controlTimeout = null;
+let isLandscape = false;
+
+function checkOrientation() {
+  isLandscape = window.matchMedia("(orientation: landscape)").matches;
+}
+
+checkOrientation();
+window.addEventListener("orientationchange", checkOrientation);
 
 function hideControls() {
+  if (!isLandscape) {
+    controlTimeout = null;
+    return;
+  }
   const controls = document.querySelector(".controls");
   if (controls) controls.style.display = "none";
 }
