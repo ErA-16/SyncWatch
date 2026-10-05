@@ -1,15 +1,21 @@
-﻿using SyncWatch.Data;
+﻿using Amazon.S3;
+using Amazon.S3.Model;
 using Microsoft.EntityFrameworkCore;
+using SyncWatch.Data;
 
 namespace SyncWatch.Services
 {
     public class RoomExpirationService : BackgroundService
     {
         private readonly IServiceProvider _serviceProvider;
+        private readonly IAmazonS3 _s3;
+        private readonly string _bucketName;
 
-        public RoomExpirationService(IServiceProvider serviceProvider)
+        public RoomExpirationService(IServiceProvider serviceProvider, IAmazonS3 s3, IConfiguration configuration)
         {
             _serviceProvider = serviceProvider;
+            _s3 = s3;
+            _bucketName = configuration["R2:BucketName"]!;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -28,10 +34,11 @@ namespace SyncWatch.Services
                     {
                         foreach (var movie in room.Movies)
                         {
-                            if (System.IO.File.Exists(movie.StorageLocation))
+                            await _s3.DeleteObjectAsync(new DeleteObjectRequest
                             {
-                                System.IO.File.Delete(movie.StorageLocation);
-                            }
+                                BucketName = _bucketName,
+                                Key = movie.StorageLocation
+                            });
                         }
 
                         if (expiredRooms.Count > 0)
@@ -41,8 +48,8 @@ namespace SyncWatch.Services
 
                         db.Remove(room);
                     }
-
                 }
+
                 await Task.Delay(TimeSpan.FromHours(1), stoppingToken);
             }
         }
