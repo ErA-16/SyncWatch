@@ -1,5 +1,6 @@
 using Amazon.Runtime;
 using Amazon.S3;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using SyncWatch.Data;
 using SyncWatch.Hubs;
@@ -22,6 +23,15 @@ builder.Services.AddControllers()
     {
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
     });
+
+// [DisableRequestSizeLimit] lifts Kestrel's body cap but leaves the form reader on
+// its own 128 MB default, which rejects large multipart posts with a 413 instead.
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = long.MaxValue;
+    options.ValueLengthLimit = int.MaxValue;
+    options.MemoryBufferThreshold = 64 * 1024;
+});
 
 builder.Services.AddSingleton<IAmazonS3>(sp =>
 {

@@ -58,14 +58,42 @@ const SyncWatchAPI = {
     return readJson(res, null); // { roomId, code, status, participants[], movies[] }
   },
 
-  async uploadMovie(roomId, file) {
-    const form = new FormData();
-    form.append("file", file);
-    const res = await fetch(`${API_BASE}/api/Movie/upload/${roomId}`, {
+  async uploadMovie(roomId, file, onProgress) {
+    // The bytes never touch this API. Cloudflare caps request bodies at 100 MB, so
+    // a 300 MB movie POSTed here dies with a 502 before ASP.NET sees it. The
+    // browser PUTs straight to R2 using a short-lived presigned URL instead.
+    const ticket = await (async () => {
+      const res = await fetch(`${API_BASE}/api/Movie/upload-ticket/${roomId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileSize: file.size,
+          contentType: file.type || null
+        })
+      });
+      if (!res.ok) throw new Error(await readError(res, `Rejected ${file.name}.`));
+      return readJson(res, null);
+    })();
+
+    await putToR2(ticket, file, onProgress);
+
+    // The server can't sniff the container off a presigned upload, so read the
+    // duration here while the file is still local to the browser.
+    const durationSeconds = await readVideoDuration(file);
+
+    const res = await fetch(`${API_BASE}/api/Movie/upload-complete/${roomId}`, {
       method: "POST",
-      body: form
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        objectKey: ticket.objectKey,
+        fileName: file.name,
+        fileSize: file.size,
+        contentType: ticket.contentType,
+        durationSeconds
+      })
     });
-    if (!res.ok) throw new Error(await readError(res, `Failed to upload ${file.name}.`));
+    if (!res.ok) throw new Error(await readError(res, `Failed to finish uploading ${file.name}.`));
     return readJson(res, null); // { id, title, episodeNumber }
   },
 
@@ -99,6 +127,76 @@ const SyncWatchAPI = {
     }).catch(() => {});
   }
 };
+
+// Upload straight to R2 with a presigned URL. XMLHttpRequest rather than fetch
+// because we need upload progress events, and fetch still can't report them.
+function putToR2(ticket, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", ticket.uploadUrl, true);
+
+    // Content-Type was signed into the URL — sending a different one gets the
+    // whole upload rejected with SignatureDoesNotMatch.
+    xhr.setRequestHeader("Content-Type", ticket.contentType);
+
+    xhr.upload.onprogress = (e) => {
+      if (onProgress && e.lengthComputable) onProgress(e.loaded / e.total);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(readXhrError(xhr, file)));
+    };
+    xhr.onerror = () => reject(new Error(`Lost connection while uploading ${file.name}.`));
+    xhr.onabort = () => reject(new Error("Upload cancelled."));
+    xhr.ontimeout = () => reject(new Error(`Upload of ${file.name} timed out.`));
+
+    xhr.send(file);
+  });
+}
+
+function readXhrError(xhr, file) {
+  // R2 answers a failed PUT with an XML body containing <Code>.
+  const code = /<Code>([^<]+)<\/Code>/.exec(xhr.responseText || "");
+  if (code) {
+    if (code[1] === "AccessDenied") return "Storage refused the upload. Try again.";
+    if (code[1] === "SignatureDoesNotMatch") return "That upload link had already expired. Try again.";
+    return `Storage refused the upload (${code[1]}).`;
+  }
+  if (xhr.status === 0) return `Lost connection while uploading ${file.name}.`;
+  return `Failed to upload ${file.name} (storage error ${xhr.status}).`;
+}
+
+// Duration for the room list. Resolves to null rather than rejecting: an
+// unreadable duration is cosmetic, and it's never worth failing an upload over.
+function readVideoDuration(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    let settled = false;
+
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      video.removeAttribute("src");
+      video.load();
+      URL.revokeObjectURL(url);
+      resolve(value);
+    };
+
+    // Some files never fire loadedmetadata; don't hang the upload waiting.
+    const timer = setTimeout(() => finish(null), 10000);
+
+    video.preload = "metadata";
+    video.muted = true;
+    video.onloadedmetadata = () => {
+      const seconds = video.duration;
+      finish(Number.isFinite(seconds) && seconds > 0 ? seconds : null);
+    };
+    video.onerror = () => finish(null);
+    video.src = url;
+  });
+}
 
 // Per-room credentials, kept in localStorage so a refresh doesn't lose identity.
 const SyncWatchStorage = {

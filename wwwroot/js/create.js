@@ -84,8 +84,12 @@ createBtn.addEventListener("click", async () => {
     // Sequential on purpose: uploads are large and parallel ones would saturate
     // the connection for no real gain, and the progress readout stays honest.
     for (let i = 0; i < selectedFiles.length; i++) {
-      setStatus(createStatus, `Uploading ${i + 1} of ${selectedFiles.length}…`, "");
-      await SyncWatchAPI.uploadMovie(room.roomId, selectedFiles[i]);
+      const file = selectedFiles[i];
+      const label = `Uploading ${i + 1} of ${selectedFiles.length} — ${file.name}`;
+
+      await SyncWatchAPI.uploadMovie(room.roomId, file, (fraction) => {
+        setStatus(createStatus, `${label} (${Math.round(fraction * 100)}%)`, "");
+      });
     }
 
     setStatus(createStatus, "Room ready — taking you in…", "ok");

@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SyncWatch.Data;
+using SyncWatch.Dtos;
 using SyncWatch.Models;
 using SyncWatch.Services;
 using SyncWatch.Services.Exception;
@@ -37,6 +38,41 @@ namespace SyncWatch.Controllers
             {
                 _logger.LogWarning("Upload controller caught handled exception: {Message}", ex.Message);
                 return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpPost("upload-ticket/{roomId:guid}")]
+        public async Task<IActionResult> CreateUploadTicket(Guid roomId, [FromBody] UploadTicketRequest request)
+        {
+            try
+            {
+                return Ok(await _movieService.CreateUploadTicketAsync(roomId, request));
+            }
+            catch (Exception ex) when (ex is EmptyFileException || ex is InvalidFileTypeException || ex is StorageLimitException)
+            {
+                _logger.LogWarning("Upload ticket rejected: {Message}", ex.Message);
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpPost("upload-complete/{roomId:guid}")]
+        public async Task<IActionResult> CompleteUpload(Guid roomId, [FromBody] CompleteUploadRequest request)
+        {
+            try
+            {
+                var movie = await _movieService.CompleteUploadAsync(roomId, request);
+                return Ok(new { movie.Id, movie.Title, movie.EpisodeNumber });
+            }
+            catch (Exception ex) when (ex is InvalidContentException || ex is IncompleteUploadException
+                                       || ex is InvalidFileTypeException || ex is StorageLimitException)
+            {
+                _logger.LogWarning("Upload completion rejected: {Message}", ex.Message);
+                return BadRequest(ex.Message);
+            }
+            catch (MovieNotFoundException ex)
+            {
+                _logger.LogWarning("Upload completion rejected: {Message}", ex.Message);
+                return NotFound(ex.Message);
             }
         }
 
