@@ -133,11 +133,11 @@ namespace SyncWatch.Services
             return true;
         }
 
-        public async Task<bool> SetParticipantStatusAsync(string token, ParticipantStatus status)
+        public async Task<ParticipantStatus?> SetParticipantStatusAsync(string token, ParticipantStatus status)
         {
             if (string.IsNullOrWhiteSpace(token))
             {
-                return false;
+                return null;
             }
 
             var participant = await _db.Participants
@@ -145,18 +145,18 @@ namespace SyncWatch.Services
 
             if (participant == null)
             {
-                return false;
+                return null;
             }
 
-            if (participant.Status == status)
+            var previous = participant.Status;
+
+            if (previous != status)
             {
-                return true;
+                participant.Status = status;
+                await _db.SaveChangesAsync();
             }
 
-            participant.Status = status;
-            await _db.SaveChangesAsync();
-
-            return true;
+            return previous;
         }
 
         public async Task<string?> GetDisplayNameAsync(string token)
@@ -174,7 +174,7 @@ namespace SyncWatch.Services
 
         public async Task<bool> LeaveRoomAsync(string token)
         {
-            if (!await SetParticipantStatusAsync(token, ParticipantStatus.Offline))
+            if (await SetParticipantStatusAsync(token, ParticipantStatus.Offline) == null)
             {
                 throw new ParticipantNotFoundException();
             }
@@ -184,7 +184,7 @@ namespace SyncWatch.Services
 
         public async Task<bool> ReconnectRoomAsync(string token)
         {
-            if (!await SetParticipantStatusAsync(token, ParticipantStatus.Online))
+            if (await SetParticipantStatusAsync(token, ParticipantStatus.Online) == null)
             {
                 throw new ParticipantNotFoundException();
             }

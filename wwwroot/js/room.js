@@ -350,8 +350,9 @@ connection.on("ChatMessageReceived", msg => {
   announceChatMessage(msg);
 });
 
-// Sent with a payload when someone drops, so the nudge can name them instead of
-// the client having to diff the roster itself.
+// Sent with a payload whenever someone drops or comes back, so the nudge can name
+// them instead of the client having to diff the roster itself. Only genuine
+// transitions reach here — the Hub skips redundant ones.
 connection.on("ParticipantsUpdated", change => {
   announcePresenceChange(change);
   refreshRoom();
@@ -948,12 +949,15 @@ function announceChatMessage(msg) {
   showToast(`${msg.displayName || "Guest"} sent a message`);
 }
 
-// On screen and already scrolled to the newest message means nothing was missed
-// by keeping your eyes on the video. While the drawer is open that is the list
-// the user is actually reading; closed, the page list is off screen and the
-// toast is the right nudge.
+// Whether the newest message is already on screen for the user. In fullscreen the
+// page chat is still laid out — it is just painted over by the player — so its
+// coordinates say nothing about whether anyone can read it, and only the open
+// drawer counts. Returning false means the toast is the right nudge.
 function chatIsCaughtUp() {
-  const list = isChatPanelOpen() ? chatPanelList : chatBox;
+  const drawerOpen = isChatPanelOpen();
+  if (inFullscreen() && !drawerOpen) return false;
+
+  const list = drawerOpen ? chatPanelList : chatBox;
 
   const rect = list.getBoundingClientRect();
   const onScreen = rect.top < window.innerHeight && rect.bottom > 0;
@@ -984,14 +988,18 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape" && isChatPanelOpen()) setChatPanelOpen(false);
 });
 
-// Only a drop is announced — the Hub sends this event without a payload on
-// join/reconnect, where there is nothing new to say.
+// The Hub only sends this for a real transition, so both directions can be
+// announced without worrying about a reconnect that never lost anyone. Skipped
+// for your own name: you know you came back.
 function announcePresenceChange(change) {
   if (!change || !change.displayName) return;
   if (change.displayName === ownDisplayName()) return;
-  if (change.status !== "Offline") return;
 
-  showToast(`${change.displayName} went offline`);
+  if (change.status === "Offline") {
+    showToast(`${change.displayName} went offline`);
+  } else if (change.status === "Online") {
+    showToast(`${change.displayName} is back`);
+  }
 }
 
 // The same message can arrive twice — once from the history replay and once from

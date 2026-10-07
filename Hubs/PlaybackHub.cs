@@ -177,10 +177,29 @@ namespace SyncWatch.Hubs
 
             _presence.Add(Context.ConnectionId, roomId, token);
 
-            if (await _roomService.SetParticipantStatusAsync(token, ParticipantStatus.Online))
+            var previous = await _roomService.SetParticipantStatusAsync(token, ParticipantStatus.Online);
+
+            // Only an Offline -> Online transition is worth announcing. Join runs on
+            // every reconnect, so without this the room would be told someone is
+            // back each time they refreshed a page they never left.
+            if (previous != null && previous != ParticipantStatus.Online)
             {
-                await Clients.Group(roomId.ToString()).SendAsync("ParticipantsUpdated");
+                await AnnouncePresenceAsync(roomId, token, ParticipantStatus.Online);
             }
+        }
+
+        // Names the participant so the client can say who it was, and carries the
+        // status so it can tell a drop from a return. Sent to the room, because
+        // everyone in it needs to see the roster change.
+        private async Task AnnouncePresenceAsync(Guid roomId, string token, ParticipantStatus status)
+        {
+            var displayName = await _roomService.GetDisplayNameAsync(token);
+
+            await Clients.Group(roomId.ToString()).SendAsync("ParticipantsUpdated", new
+            {
+                displayName = string.IsNullOrWhiteSpace(displayName) ? "Guest" : displayName,
+                status
+            });
         }
 
         public override async Task OnDisconnectedAsync(Exception? exception)
@@ -191,28 +210,26 @@ namespace SyncWatch.Hubs
             }
 
             if (_presence.TryRemove(Context.ConnectionId, out var roomId, out var token, out var participantStillConnected)
-                && !participantStillConnected
-                && await _roomService.SetParticipantStatusAsync(token, ParticipantStatus.Offline))
+                && !participantStillConnected)
             {
-                var displayName = await _roomService.GetDisplayNameAsync(token);
+                var previous = await _roomService.SetParticipantStatusAsync(token, ParticipantStatus.Offline);
 
-                await Clients.Group(roomId.ToString()).SendAsync("ParticipantsUpdated", new
+                if (previous != null && previous != ParticipantStatus.Offline)
                 {
-                    displayName = string.IsNullOrWhiteSpace(displayName) ? "Guest" : displayName,
-                    status = ParticipantStatus.Offline
-                });
+                    await AnnouncePresenceAsync(roomId, token, ParticipantStatus.Offline);
 
-                // Whoever just left was driving playback. Freeze the room where it
-                // is instead of letting it run on with nothing watching — the
-                // position would otherwise keep climbing in the background for the
-                // rest of the room's life. Whoever is still here presses play to
-                // carry on, and the reconnecting participant joins at whatever
-                // position that got to.
-                var paused = await _playbackService.PauseAtCurrentPositionAsync(roomId);
+                    // Whoever just left was driving playback. Freeze the room where it
+                    // is instead of letting it run on with nothing watching — the
+                    // position would otherwise keep climbing in the background for
+                    // the rest of the room's life. Whoever is still here presses play
+                    // to carry on, and the reconnecting participant joins at whatever
+                    // position that got to.
+                    var paused = await _playbackService.PauseAtCurrentPositionAsync(roomId);
 
-                if (paused != null)
-                {
-                    await Clients.Group(roomId.ToString()).SendAsync("PlaybackUpdated", paused);
+                    if (paused != null)
+                    {
+                        await Clients.Group(roomId.ToString()).SendAsync("PlaybackUpdated", paused);
+                    }
                 }
             }
 
