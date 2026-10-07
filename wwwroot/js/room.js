@@ -32,6 +32,11 @@ const chatPanelList = document.getElementById("chat-panel-list");
 const chatPanelClose = document.getElementById("chat-panel-close");
 const chatToggleBtn = document.getElementById("chat-toggle-btn");
 const chatInput = document.getElementById("chat-input");
+const chatInputRow = chatInput.closest(".chat-input-row");
+// Where the input row lives on the page, so the drawer can hand it back. It is
+// moved rather than duplicated: two inputs would mean two values, two focus
+// states and a send handler to keep in step.
+const chatInputHome = { parent: chatInputRow.parentElement, next: chatInputRow.nextElementSibling };
 // The same messages, rendered into both lists. The drawer's list is a sibling of
 // the page one rather than a move of it, so opening the drawer never empties the
 // chat section underneath — and both stay filled by one render call.
@@ -976,9 +981,19 @@ function setChatPanelOpen(open) {
   chatPanel.classList.toggle("chat-panel--open", open);
   chatToggleBtn.setAttribute("aria-expanded", open ? "true" : "false");
 
-  // A display:none list can't be scrolled, so this only takes effect once the
-  // drawer is actually on screen.
-  if (open) chatPanelList.scrollTop = chatPanelList.scrollHeight;
+  if (open) {
+    // Reusable input row goes into the drawer so the room can be answered without
+    // leaving fullscreen; the page below is not rendered while fullscreen anyway.
+    chatPanel.appendChild(chatInputRow);
+    // A display:none list can't be scrolled, so this only takes effect once the
+    // drawer is actually on screen.
+    chatPanelList.scrollTop = chatPanelList.scrollHeight;
+    return;
+  }
+
+  if (chatInputRow.parentElement !== chatInputHome.parent) {
+    chatInputHome.parent.insertBefore(chatInputRow, chatInputHome.next);
+  }
 }
 
 chatToggleBtn.addEventListener("click", () => setChatPanelOpen(!isChatPanelOpen()));
@@ -990,7 +1005,10 @@ document.addEventListener("keydown", e => {
 
 // The Hub only sends this for a real transition, so both directions can be
 // announced without worrying about a reconnect that never lost anyone. Skipped
-// for your own name: you know you came back.
+// for your own name: you know you came back. Deliberately says the same thing
+// whether they've been in the room all along or just turned up — the server has
+// no business tracking that, and a room is small enough that the distinction
+// isn't worth the bookkeeping.
 function announcePresenceChange(change) {
   if (!change || !change.displayName) return;
   if (change.displayName === ownDisplayName()) return;
@@ -998,7 +1016,7 @@ function announcePresenceChange(change) {
   if (change.status === "Offline") {
     showToast(`${change.displayName} went offline`);
   } else if (change.status === "Online") {
-    showToast(`${change.displayName} is back`);
+    showToast(`${change.displayName} joined the room`);
   }
 }
 
