@@ -30,13 +30,19 @@
     <div class="controls">
       <button class="ctrl" id="skip-back-btn" title="Back 10s">&#8634;10</button>
       <button class="ctrl play" id="play-pause-btn" title="Play/Pause">&#9654;</button>
-      <button class="ctrl" id="skip-fwd-btn" title="Forward 10s">10&#8635;</button>
-      <button class="ctrl fullscreen" id="fullscreen-btn" title="Fullscreen" aria-label="Fullscreen">&#9974;</button>
-      <span class="time" id="time-current">00:00</span>
-      <input type="range" class="seek" id="seek-bar" min="0" max="100" value="0" />
-      <span class="time" id="time-total">00:00</span>
+<button class="ctrl" id="skip-fwd-btn" title="Forward 10s">10&#8635;</button>
+    <button class="ctrl fullscreen" id="fullscreen-btn" title="Fullscreen" aria-label="Fullscreen">&#9974;</button>
+    <span class="time" id="time-current">00:00</span>
+    <input type="range" class="seek" id="seek-bar" min="0" max="100" step="0.1" value="0" />
+    <span class="time" id="time-total">00:00</span>
     </div>
-  </div>
+
+  <!-- Inside the player container on purpose: nothing outside the fullscreen
+       element is rendered, so a toast placed outside it would never be seen in
+       fullscreen. Fixed positioning keeps it behaving like a page-level toast the
+       rest of the time. -->
+  <div class="toast" id="toast"></div>
+</div>
 
   <div class="section-title">
     <h2>Collection</h2>
@@ -56,12 +62,10 @@
   <div class="card chat-box" id="chat-box"></div>
   <div class="chat-input-row">
     <input type="text" id="chat-input" placeholder="Say something…" maxlength="300" />
-    <button class="primary" id="chat-send-btn" style="width:auto;">Send</button>
-  </div>
+<button class="primary" id="chat-send-btn" style="width:auto;">Send</button>
+    </div>
 
 </div>
-
-<div class="toast" id="toast"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
 <script src="js/api.js"></script>

@@ -12,6 +12,11 @@ namespace SyncWatch.Services
 
         Task<PlaybackState> AdvanceAsync(Guid roomId, PlaybackCommandRequest request);
 
+        // Pauses the room from the server side, freezing the position where
+        // playback actually is rather than where the last command left it.
+        // Returns null when there is nothing to pause.
+        Task<PlaybackState?> PauseAtCurrentPositionAsync(Guid roomId);
+
         Task<PlaybackState?> GetCurrentStateAsync(Guid roomId);
     }
 }

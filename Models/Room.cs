@@ -10,5 +10,6 @@
 
         public List<Movie> Movies { get; set; } = new();
         public List<Participant> Participants { get; set; } = new();
+        public List<ChatMessage> ChatMessages { get; set; } = new();
     }
 }

@@ -10,17 +10,20 @@ namespace SyncWatch.Hubs
     {
         private readonly IPlaybackService _playbackService;
         private readonly IRoomService _roomService;
+        private readonly IChatService _chatService;
         private readonly PresenceTracker _presence;
         private readonly ILogger<PlaybackHub> _logger;
 
         public PlaybackHub(
             IPlaybackService playbackService,
             IRoomService roomService,
+            IChatService chatService,
             PresenceTracker presence,
             ILogger<PlaybackHub> logger)
         {
             _playbackService = playbackService;
             _roomService = roomService;
+            _chatService = chatService;
             _presence = presence;
             _logger = logger;
         }
@@ -85,6 +88,7 @@ namespace SyncWatch.Hubs
         {
             await Groups.AddToGroupAsync(Context.ConnectionId, roomId.ToString());
             await MarkPresentAsync(roomId, token);
+            await SendChatHistoryAsync(roomId);
 
             var state = await _playbackService.GetCurrentStateAsync(roomId);
 
@@ -115,18 +119,46 @@ namespace SyncWatch.Hubs
         {
             if (string.IsNullOrWhiteSpace(message)) return;
 
-            await Clients.Group(roomId.ToString()).SendAsync("ChatMessageReceived", new
+            try
             {
-                displayName = string.IsNullOrWhiteSpace(displayName) ? "Guest" : displayName,
-                message = message.Trim(),
-                sentAt = DateTime.UtcNow
-            });
+                var stored = await _chatService.SendAsync(roomId, displayName, message);
+
+                await Clients.Group(roomId.ToString()).SendAsync("ChatMessageReceived", new
+                {
+                    id = stored.Id,
+                    displayName = stored.DisplayName,
+                    message = stored.Message,
+                    sentAt = stored.SentAt
+                });
+            }
+            catch (Exception ex) when (ex is EmptyMessageException
+                                       || ex is MessageTooLongException
+                                       || ex is RoomNotAcceptingMessagesException)
+            {
+                throw new HubException(ex.Message);
+            }
+        }
+
+        // Replayed on join/reconnect so a refresh doesn't wipe the panel. Sent
+        // only to the caller — everyone else already has these messages on screen.
+        private async Task SendChatHistoryAsync(Guid roomId)
+        {
+            var history = await _chatService.GetHistoryAsync(roomId);
+
+            await Clients.Caller.SendAsync("ChatHistory", history.Select(m => new
+            {
+                id = m.Id,
+                displayName = m.DisplayName,
+                message = m.Message,
+                sentAt = m.SentAt
+            }));
         }
 
         public async Task Reconnect(Guid roomId, string? token = null)
         {
             await Groups.AddToGroupAsync(Context.ConnectionId, roomId.ToString());
             await MarkPresentAsync(roomId, token);
+            await SendChatHistoryAsync(roomId);
 
             var state = await _playbackService.GetCurrentStateAsync(roomId);
 
@@ -162,7 +194,26 @@ namespace SyncWatch.Hubs
                 && !participantStillConnected
                 && await _roomService.SetParticipantStatusAsync(token, ParticipantStatus.Offline))
             {
-                await Clients.Group(roomId.ToString()).SendAsync("ParticipantsUpdated");
+                var displayName = await _roomService.GetDisplayNameAsync(token);
+
+                await Clients.Group(roomId.ToString()).SendAsync("ParticipantsUpdated", new
+                {
+                    displayName = string.IsNullOrWhiteSpace(displayName) ? "Guest" : displayName,
+                    status = ParticipantStatus.Offline
+                });
+
+                // Whoever just left was driving playback. Freeze the room where it
+                // is instead of letting it run on with nothing watching — the
+                // position would otherwise keep climbing in the background for the
+                // rest of the room's life. Whoever is still here presses play to
+                // carry on, and the reconnecting participant joins at whatever
+                // position that got to.
+                var paused = await _playbackService.PauseAtCurrentPositionAsync(roomId);
+
+                if (paused != null)
+                {
+                    await Clients.Group(roomId.ToString()).SendAsync("PlaybackUpdated", paused);
+                }
             }
 
             await base.OnDisconnectedAsync(exception);

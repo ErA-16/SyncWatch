@@ -11,6 +11,7 @@ namespace SyncWatch.Data
         public DbSet<Room> Rooms { get; set; }
         public DbSet<Participant> Participants { get; set; }
         public DbSet<PlaybackState> PlaybackStates { get; set; }
+        public DbSet<ChatMessage> ChatMessages { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -42,6 +43,12 @@ namespace SyncWatch.Data
                 .WithMany()
                 .HasForeignKey(p => p.CurrentMovieId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ChatMessage>()
+                .HasOne(m => m.Room)
+                .WithMany(r => r.ChatMessages)
+                .HasForeignKey(m => m.RoomId)
+                .OnDelete(DeleteBehavior.Cascade);
         }
 
     }

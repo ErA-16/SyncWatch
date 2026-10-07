@@ -324,6 +324,10 @@ video { width: 100%; height: 100%; display: block; background: #000; }
   opacity: 0; pointer-events: none; transition: opacity 0.2s;
 }
 .toast.show { opacity: 1; }
+/* In fullscreen the toast centres over the video, and the control bar owns the
+   bottom ~60px of it — lift clear so a notification isn't hidden behind it. */
+#player-container:fullscreen .toast,
+#player-container:-webkit-full-screen .toast { bottom: 84px; }
 
 .chat-box {
   max-height: 220px;

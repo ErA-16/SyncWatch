@@ -71,6 +71,7 @@ let autoplayBlocked = false;
 let warnedAboutStatus = false;
 let ownEchoExpected = false;
 let ownEchoPosition = null;
+let ownEchoSentAt = 0;
 let ownEchoTimer = null;
 let lastRoomSignature = null;
 let roomRefreshInFlight = false;
@@ -81,6 +82,8 @@ let controlsVisible = true;
 let lastActivityAt = Date.now();
 let isFullscreen = false;
 let leavingIntentionally = false;
+let scrubTarget = null;
+const seenChatMessageIds = new Set();
 
 // --- Toast ------------------------------------------------------------------
 
@@ -148,6 +151,7 @@ function isConnected() {
 function expectOwnEcho(position) {
   ownEchoExpected = true;
   ownEchoPosition = safePosition(position);
+  ownEchoSentAt = performance.now();
   clearTimeout(ownEchoTimer);
   ownEchoTimer = setTimeout(clearOwnEcho, OWN_ECHO_WINDOW_MS);
 }
@@ -161,12 +165,15 @@ function clearOwnEcho() {
 
 // Only our own command comes back carrying the exact position we reported, so a
 // mismatch means the other participant is driving and their position must win.
+// Returns the position we asked for, projected forward over the time the command
+// spent in flight, or null when this broadcast is somebody else's.
 function consumeOwnEcho(isFreshCommand, position) {
-  if (!isFreshCommand || !ownEchoExpected) return false;
+  if (!isFreshCommand || !ownEchoExpected) return null;
 
   const wasOurs = Math.abs(safePosition(position) - ownEchoPosition) <= RESUME_SEEK_TOLERANCE_SECONDS;
+  const projected = ownEchoPosition + (performance.now() - ownEchoSentAt) / 1000;
   clearOwnEcho();
-  return wasOurs;
+  return wasOurs ? projected : null;
 }
 
 // The Hub methods take (roomId, request) — nothing else. The local `position`
@@ -322,11 +329,23 @@ connection.on("PlaybackUpdated", state => {
   applyServerState(state);
 });
 
-connection.on("ChatMessageReceived", msg => {
-  appendChatMessage(msg.displayName, msg.message);
+// Replayed by the Hub on join and reconnect, so a refresh no longer empties the
+// panel. It replaces whatever is on screen because it is the full history.
+connection.on("ChatHistory", messages => {
+  chatBox.innerHTML = "";
+  seenChatMessageIds.clear();
+  (messages || []).forEach(renderChatMessage);
 });
 
-connection.on("ParticipantsUpdated", () => {
+connection.on("ChatMessageReceived", msg => {
+  renderChatMessage(msg);
+  announceChatMessage(msg);
+});
+
+// Sent with a payload when someone drops, so the nudge can name them instead of
+// the client having to diff the roster itself.
+connection.on("ParticipantsUpdated", change => {
+  announcePresenceChange(change);
   refreshRoom();
 });
 
@@ -387,7 +406,8 @@ function applyServerState(state) {
   const isFreshCommand = version > lastCommandVersion;
   if (isFreshCommand) lastCommandVersion = version;
 
-  const isOwnEcho = consumeOwnEcho(isFreshCommand, state.position);
+  const echoedPosition = consumeOwnEcho(isFreshCommand, state.position);
+  const isOwnEcho = echoedPosition !== null;
 
   const serverMovieId = state.currentMovieId;
   const incomingStatus = normalizeStatus(state.status);
@@ -410,7 +430,16 @@ function applyServerState(state) {
 
   if (isFreshCommand) {
     if (isOwnEcho && serverStatus === "Playing" && hasMetadata()) {
-      setTarget(clampPosition(safePosition(video.currentTime)));
+      const desired = clampPosition(echoedPosition);
+      setTarget(desired);
+      // Play already moved the local player, but a seek or a skip never touched
+      // it — so trust the local clock only while it is already sitting where we
+      // asked it to be. Without this a skip during playback is swallowed here and
+      // only lands on the next 5-second broadcast, by which time the second tap
+      // has already sent it to +20.
+      if (Math.abs(video.currentTime - desired) > RESUME_SEEK_TOLERANCE_SECONDS) {
+        applyPosition(desired);
+      }
     } else {
       // The server's position was measured half an RTT ago; add it back so
       // playback lands where the host actually is, not where they were.
@@ -527,13 +556,22 @@ function playbackCommand(movieId, position) {
   return { movieId, position: safePosition(position) };
 }
 
+// video.currentTime stays 0 until metadata lands, so a command sent while the
+// element is still loading would report position 0 and restart the room from the
+// beginning. Fall back to the last position the server gave us instead.
+function localPosition(fallback = 0) {
+  if (hasMetadata()) return safePosition(video.currentTime);
+  const target = projectedTarget();
+  return target !== null ? target : safePosition(video.currentTime, fallback);
+}
+
 async function sendPlay() {
-  const position = safePosition(video.currentTime);
+  const position = localPosition();
   await invokeTimed("Play", position, creds.roomId, playbackCommand(currentMovieId, position));
 }
 
 async function sendPause() {
-  const position = safePosition(video.currentTime, isUsablePosition(video.duration) ? video.duration : 0);
+  const position = localPosition(isUsablePosition(video.duration) ? video.duration : 0);
   await invokeTimed("Pause", position, creds.roomId, playbackCommand(currentMovieId, position));
 }
 
@@ -599,7 +637,7 @@ playPauseBtn.addEventListener("click", async () => {
 skipBackBtn.addEventListener("click", async () => {
   if (!currentMovieId) return;
   try {
-    await sendSeek(safePosition(video.currentTime) - 10);
+    await sendSeek(localPosition() - 10);
   } catch (err) {
     showToast(err.message || "Could not skip back.");
   }
@@ -608,50 +646,67 @@ skipBackBtn.addEventListener("click", async () => {
 skipFwdBtn.addEventListener("click", async () => {
   if (!currentMovieId) return;
   try {
-    await sendSeek(safePosition(video.currentTime) + 10);
+    await sendSeek(localPosition() + 10);
   } catch (err) {
     showToast(err.message || "Could not skip forward.");
   }
 });
 
-function seekFromBar() {
+// The bar is a 0-100 range, so its value only means anything against a known
+// duration — and while dragging, only the value captured at that moment is the
+// one the user aimed at.
+function barValueToPosition() {
   if (!isUsablePosition(video.duration)) return null;
   return clampPosition((Number(seekBar.value) / 100) * video.duration);
 }
 
 seekBar.addEventListener("pointerdown", () => {
   userIsScrubbing = true;
+  scrubTarget = barValueToPosition();
   showControls();
 });
 
 seekBar.addEventListener("input", () => {
   userIsScrubbing = true;
-  if (isUsablePosition(video.duration)) {
-    timeCurrent.textContent = formatTime((Number(seekBar.value) / 100) * video.duration);
-  }
+  scrubTarget = barValueToPosition();
+  if (scrubTarget !== null) timeCurrent.textContent = formatTime(scrubTarget);
 });
 
-seekBar.addEventListener("change", async () => {
+// Commits the position captured during the drag, never seekBar.value read now.
+// The pointerup listener on window below ends the scrub, and a timeupdate landing
+// in that gap rewrites the bar from video.currentTime — so reading the bar at
+// commit time sends playback back to where it was instead of where the user
+// dragged. Idempotent, because both change and that timeout can arrive.
+function commitScrub(fromChangeEvent) {
+  // change also fires for keyboard nudges on the bar, where no pointer ever
+  // touched it and there is nothing captured to fall back on.
+  if (!userIsScrubbing && !fromChangeEvent) return;
+
   userIsScrubbing = false;
+  const target = scrubTarget !== null ? scrubTarget : barValueToPosition();
+  scrubTarget = null;
   showControls(); // re-arm the idle countdown after a scrub
-  if (!currentMovieId) return;
-  const target = seekFromBar();
-  if (target === null) return;
-  try {
-    await sendSeek(target);
-  } catch (err) {
-    showToast(err.message || "Could not seek.");
-  }
-});
+
+  if (target === null || !currentMovieId) return;
+  if (Math.abs(video.currentTime - target) <= RESUME_SEEK_TOLERANCE_SECONDS) return;
+
+  sendSeek(target).catch(err => showToast(err.message || "Could not seek."));
+}
+
+seekBar.addEventListener("change", () => commitScrub(true));
 
 // A drag can end anywhere — pointerup on the window, not the bar. Without this
-// userIsScrubbing stays true forever and soft sync silently stops correcting drift.
+// userIsScrubbing stays true forever and soft sync silently stops correcting
+// drift. Deferred by a tick so the range's own change event gets to commit first.
 window.addEventListener("pointerup", () => {
-  if (userIsScrubbing) userIsScrubbing = false;
+  if (userIsScrubbing) setTimeout(() => commitScrub(false), 0);
 });
 
+// A cancelled drag never commits — the finger was lifted by the system, not the
+// user, so playback stays where it was.
 window.addEventListener("pointercancel", () => {
   userIsScrubbing = false;
+  scrubTarget = null;
 });
 
 video.addEventListener("click", showControls);
@@ -862,6 +917,61 @@ video.addEventListener("ended", async () => {
 });
 
 // --- Chat -------------------------------------------------------------------
+
+// The server hands back the display name it stored, which is this one trimmed
+// with a blank name replaced by "Guest". Comparing against the same
+// normalisation keeps a stray space from making you toast your own messages.
+function ownDisplayName() {
+  const name = (creds.displayName || "").trim();
+  return name === "" ? "Guest" : name;
+}
+
+// A nudge that someone said something while you were watching rather than
+// reading. Skipped when the panel is already on screen and caught up, when the
+// tab is in the background, and for our own messages — you typed those.
+// Matched on display name because the broadcast carries no sender id and a room
+// only holds two people.
+function announceChatMessage(msg) {
+  if (!msg) return;
+  if ((msg.displayName || "Guest") === ownDisplayName()) return;
+  if (document.hidden || chatIsCaughtUp()) return;
+
+  showToast(`${msg.displayName || "Guest"} sent a message`);
+}
+
+// On screen and already scrolled to the newest message means nothing was missed
+// by keeping your eyes on the video.
+function chatIsCaughtUp() {
+  const rect = chatBox.getBoundingClientRect();
+  const onScreen = rect.top < window.innerHeight && rect.bottom > 0;
+  if (!onScreen) return false;
+
+  return chatBox.scrollTop + chatBox.clientHeight >= chatBox.scrollHeight - 24;
+}
+
+// Only a drop is announced — the Hub sends this event without a payload on
+// join/reconnect, where there is nothing new to say.
+function announcePresenceChange(change) {
+  if (!change || !change.displayName) return;
+  if (change.displayName === ownDisplayName()) return;
+  if (change.status !== "Offline") return;
+
+  showToast(`${change.displayName} went offline`);
+}
+
+// The same message can arrive twice — once from the history replay and once from
+// the live broadcast, if it was sent while the Hub was answering Join. The server
+// gives every message an id, so the second copy is dropped.
+function renderChatMessage(msg) {
+  if (!msg) return;
+
+  if (msg.id) {
+    if (seenChatMessageIds.has(msg.id)) return;
+    seenChatMessageIds.add(msg.id);
+  }
+
+  appendChatMessage(msg.displayName, msg.message);
+}
 
 function appendChatMessage(displayName, message) {
   // Built with textContent, not innerHTML — both displayName and message are

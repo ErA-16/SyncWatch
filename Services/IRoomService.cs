@@ -14,5 +14,9 @@ namespace SyncWatch.Services
         Task<RoomResponse> GetRoomAsync(string code);
 
         Task<bool> SetParticipantStatusAsync(string token, ParticipantStatus status);
+
+        // Used by the Hub to name the person in a presence broadcast. Null when
+        // the token belongs to nobody.
+        Task<string?> GetDisplayNameAsync(string token);
     }
 }

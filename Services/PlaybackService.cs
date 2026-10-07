@@ -164,6 +164,36 @@ namespace SyncWatch.Services
         }
 
 
+        public async Task<PlaybackState?> PauseAtCurrentPositionAsync(Guid roomId)
+        {
+            var state = await _db.PlaybackStates.FindAsync(roomId);
+
+            if (state == null)
+            {
+                _logger.LogInformation("Pause skipped: no PlaybackState exists for Room {RoomId}.", roomId);
+                return null;
+            }
+
+            if (state.Status != PlaybackStatus.Playing)
+            {
+                return null;
+            }
+
+            // Position is a snapshot from the last command, so the room has been
+            // drifting forward since — freeze it where the video actually is, the
+            // same extrapolation PlaybackSyncService broadcasts every 5 seconds.
+            var elapsed = (DateTime.UtcNow - state.UpdatedAt).TotalSeconds;
+            state.Position = Math.Max(0, state.Position + elapsed);
+            state.Status = PlaybackStatus.Paused;
+            state.Version += 1;
+            state.UpdatedAt = DateTime.UtcNow;
+
+            await _db.SaveChangesAsync();
+
+            return state;
+        }
+
+
         public async Task<PlaybackState?> GetCurrentStateAsync(Guid roomId)
         {
             return await _db.PlaybackStates.FindAsync(roomId);

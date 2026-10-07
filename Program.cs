@@ -59,6 +59,7 @@ builder.Services.AddHostedService<PlaybackSyncService>();
 builder.Services.AddScoped<IMovieService, MovieService>();
 builder.Services.AddScoped<IRoomService, RoomService>();
 builder.Services.AddScoped<IPlaybackService, PlaybackService>();
+builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddSingleton<PresenceTracker>();
 
 builder.Services.AddSignalR()

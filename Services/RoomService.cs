@@ -159,6 +159,19 @@ namespace SyncWatch.Services
             return true;
         }
 
+        public async Task<string?> GetDisplayNameAsync(string token)
+        {
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                return null;
+            }
+
+            var participant = await _db.Participants
+                .FirstOrDefaultAsync(p => p.Token == token);
+
+            return participant?.DisplayName;
+        }
+
         public async Task<bool> LeaveRoomAsync(string token)
         {
             if (!await SetParticipantStatusAsync(token, ParticipantStatus.Offline))
