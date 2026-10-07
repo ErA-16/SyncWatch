@@ -27,7 +27,15 @@ const roomCodeDisplay = document.getElementById("room-code-display");
 const copyInviteBtn = document.getElementById("copy-invite-btn");
 const closeRoomBtn = document.getElementById("close-room-btn");
 const chatBox = document.getElementById("chat-box");
+const chatPanel = document.getElementById("chat-panel");
+const chatPanelList = document.getElementById("chat-panel-list");
+const chatPanelClose = document.getElementById("chat-panel-close");
+const chatToggleBtn = document.getElementById("chat-toggle-btn");
 const chatInput = document.getElementById("chat-input");
+// The same messages, rendered into both lists. The drawer's list is a sibling of
+// the page one rather than a move of it, so opening the drawer never empties the
+// chat section underneath — and both stay filled by one render call.
+const chatLists = [chatBox, chatPanelList];
 const chatSendBtn = document.getElementById("chat-send-btn");
 const playerContainer = document.getElementById("player-container");
 const controls = document.querySelector(".controls");
@@ -332,7 +340,7 @@ connection.on("PlaybackUpdated", state => {
 // Replayed by the Hub on join and reconnect, so a refresh no longer empties the
 // panel. It replaces whatever is on screen because it is the full history.
 connection.on("ChatHistory", messages => {
-  chatBox.innerHTML = "";
+  chatLists.forEach(list => { list.innerHTML = ""; });
   seenChatMessageIds.clear();
   (messages || []).forEach(renderChatMessage);
 });
@@ -858,6 +866,7 @@ async function syncFullscreenState() {
   if (!isFullscreen) {
     unlockOrientation();
     setControlsVisible(true); // never leave it hidden outside fullscreen
+    setChatPanelOpen(false);  // and never leave the drawer over a page-sized player
     return;
   }
 
@@ -940,14 +949,40 @@ function announceChatMessage(msg) {
 }
 
 // On screen and already scrolled to the newest message means nothing was missed
-// by keeping your eyes on the video.
+// by keeping your eyes on the video. While the drawer is open that is the list
+// the user is actually reading; closed, the page list is off screen and the
+// toast is the right nudge.
 function chatIsCaughtUp() {
-  const rect = chatBox.getBoundingClientRect();
+  const list = isChatPanelOpen() ? chatPanelList : chatBox;
+
+  const rect = list.getBoundingClientRect();
   const onScreen = rect.top < window.innerHeight && rect.bottom > 0;
   if (!onScreen) return false;
 
-  return chatBox.scrollTop + chatBox.clientHeight >= chatBox.scrollHeight - 24;
+  return list.scrollTop + list.clientHeight >= list.scrollHeight - 24;
 }
+
+// --- Fullscreen messages drawer ---------------------------------------------
+
+function isChatPanelOpen() {
+  return chatPanel.classList.contains("chat-panel--open");
+}
+
+function setChatPanelOpen(open) {
+  chatPanel.classList.toggle("chat-panel--open", open);
+  chatToggleBtn.setAttribute("aria-expanded", open ? "true" : "false");
+
+  // A display:none list can't be scrolled, so this only takes effect once the
+  // drawer is actually on screen.
+  if (open) chatPanelList.scrollTop = chatPanelList.scrollHeight;
+}
+
+chatToggleBtn.addEventListener("click", () => setChatPanelOpen(!isChatPanelOpen()));
+chatPanelClose.addEventListener("click", () => setChatPanelOpen(false));
+
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && isChatPanelOpen()) setChatPanelOpen(false);
+});
 
 // Only a drop is announced — the Hub sends this event without a payload on
 // join/reconnect, where there is nothing new to say.
@@ -988,8 +1023,13 @@ function appendChatMessage(displayName, message) {
   textEl.textContent = message;
 
   row.append(nameEl, textEl);
-  chatBox.appendChild(row);
-  chatBox.scrollTop = chatBox.scrollHeight;
+
+  // One row, cloned into the other list — building it twice would let the two
+  // drift apart the moment this function changes.
+  chatLists.forEach((list, index) => {
+    list.appendChild(index === 0 ? row : row.cloneNode(true));
+    list.scrollTop = list.scrollHeight;
+  });
 }
 
 async function sendChatMessage() {

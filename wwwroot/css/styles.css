@@ -203,6 +203,50 @@ video { width: 100%; height: 100%; display: block; background: #000; }
 }
 .controls button.ctrl.play { background: var(--accent); color: #06201d; }
 
+/* The Messages drawer is for watching in landscape, where the page chat below is
+   scrolled off screen entirely. Hidden in portrait, where that chat is already
+   right there under the player. */
+.controls button.ctrl.chat-toggle { display: none; }
+@media (orientation: landscape) {
+  .controls button.ctrl.chat-toggle { display: inline-flex; align-items: center; justify-content: center; }
+}
+#player-container:fullscreen .controls button.ctrl.chat-toggle,
+#player-container:-webkit-full-screen .controls button.ctrl.chat-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+}
+
+.chat-panel { display: none; }
+.chat-panel--open {
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: min(320px, 76%);
+  background: rgba(23, 27, 34, 0.97);
+  border-left: 1px solid var(--border);
+  z-index: 20;
+  padding-top: max(10px, env(safe-area-inset-top, 0));
+  padding-bottom: max(10px, env(safe-area-inset-bottom, 0));
+}
+.chat-panel-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px 10px 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.chat-panel-title { font-size: 0.9rem; font-weight: 600; }
+.chat-panel-close {
+  width: 32px; min-height: 32px; height: 32px; padding: 0;
+  background: var(--surface-raised); color: var(--text); border: 1px solid var(--border);
+}
+.chat-panel-close:hover { border-color: var(--accent); color: var(--accent); }
+/* The page list is capped at 220px; the drawer has the player's full height. */
+.chat-panel .chat-box { flex: 1; max-height: none; padding: 12px 14px; }
+/* In fullscreen the control bar overlays the bottom of the picture, so the drawer
+   stops above it — reading messages shouldn't cost you the pause button. Outside
+   fullscreen the bar sits under the video and the drawer takes the full height. */
+#player-container:fullscreen .chat-panel--open,
+#player-container:-webkit-full-screen .chat-panel--open { bottom: 72px; }
+
 #player-container:fullscreen,
 #player-container:-webkit-full-screen {
   position: relative;
@@ -295,6 +339,8 @@ video { width: 100%; height: 100%; display: block; background: #000; }
   .controls { gap: 8px; padding: 10px; }
   .controls button.ctrl { width: 42px; height: 42px; }
   .controls .time { min-width: 38px; }
+  /* Sits with the fullscreen button on the second row, beside the seek bar. */
+  .controls button.ctrl.chat-toggle { order: 9; }
   .controls .seek { order: 10; flex-basis: 100%; margin: 2px 0 0; }
   .controls button.ctrl.fullscreen { order: 11; }
 }
@@ -322,6 +368,9 @@ video { width: 100%; height: 100%; display: block; background: #000; }
   background: var(--surface-raised); border: 1px solid var(--border);
   color: var(--text); padding: 10px 16px; border-radius: 8px; font-size: 0.85rem;
   opacity: 0; pointer-events: none; transition: opacity 0.2s;
+  /* Above the messages drawer, so an error or a "went offline" notice is never
+     hidden by the very panel the user opened to read. */
+  z-index: 30;
 }
 .toast.show { opacity: 1; }
 /* In fullscreen the toast centres over the video, and the control bar owns the

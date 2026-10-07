@@ -30,12 +30,24 @@
     <div class="controls">
       <button class="ctrl" id="skip-back-btn" title="Back 10s">&#8634;10</button>
       <button class="ctrl play" id="play-pause-btn" title="Play/Pause">&#9654;</button>
-<button class="ctrl" id="skip-fwd-btn" title="Forward 10s">10&#8635;</button>
+      <button class="ctrl" id="skip-fwd-btn" title="Forward 10s">10&#8635;</button>
+      <button class="ctrl chat-toggle" id="chat-toggle-btn" title="Messages" aria-label="Messages" aria-expanded="false">&#128172;</button>
     <button class="ctrl fullscreen" id="fullscreen-btn" title="Fullscreen" aria-label="Fullscreen">&#9974;</button>
     <span class="time" id="time-current">00:00</span>
     <input type="range" class="seek" id="seek-bar" min="0" max="100" step="0.1" value="0" />
     <span class="time" id="time-total">00:00</span>
     </div>
+
+  <!-- Fullscreen/landscape only. A second list rather than a re-parented one, so
+       the page chat below is never left empty while this is open. Both are fed by
+       the same render call. -->
+  <aside class="chat-panel" id="chat-panel" aria-label="Room messages">
+    <div class="chat-panel-head">
+      <span class="chat-panel-title">Messages</span>
+      <button class="chat-panel-close" id="chat-panel-close" title="Close messages" aria-label="Close messages">&#10005;</button>
+    </div>
+    <div class="chat-box" id="chat-panel-list"></div>
+  </aside>
 
   <!-- Inside the player container on purpose: nothing outside the fullscreen
        element is rendered, so a toast placed outside it would never be seen in
