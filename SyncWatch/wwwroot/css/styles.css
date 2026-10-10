@@ -1,0 +1,402 @@
+:root {
+  --bg: #0e1116;
+  --surface: #171b22;
+  --surface-raised: #1e232c;
+  --border: #262b33;
+  --text: #e8eaed;
+  --text-dim: #8b93a1;
+  --accent: #4dd0c4;
+  --accent-dim: #2d7a72;
+  --danger: #e4675f;
+  --radius: 10px;
+  --max-width: 480px;
+  font-size: 16px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  min-height: 100%;
+  overflow-x: hidden;
+  overscroll-behavior-y: auto;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: env(safe-area-inset-top, 0) 16px env(safe-area-inset-bottom, 0);
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.wrap {
+  width: 100%;
+  max-width: var(--max-width);
+  padding: 32px 0 48px;
+}
+
+h1, h2, h3 { margin: 0 0 8px; font-weight: 600; letter-spacing: -0.01em; }
+h1 { font-size: 1.5rem; }
+h2 { font-size: 1.1rem; }
+p { color: var(--text-dim); margin: 0 0 20px; font-size: 0.95rem; }
+
+.sync-mark {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 28px;
+}
+.sync-mark svg { display: block; }
+@media (prefers-reduced-motion: no-preference) {
+  .sync-mark circle.pulse { animation: pulse 2.4s ease-in-out infinite; }
+  .sync-mark circle.pulse.b { animation-delay: 1.2s; }
+}
+@keyframes pulse {
+  0%   { r: 3; opacity: 0.9; }
+  70%  { r: 26; opacity: 0; }
+  100% { r: 26; opacity: 0; }
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+input[type="text"] {
+  width: 100%;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 11px 12px;
+  font-size: 1rem;
+  margin-bottom: 14px;
+}
+input[type="text"]:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+.file-drop {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  margin-bottom: 14px;
+  cursor: pointer;
+}
+.file-drop:hover, .file-drop:focus-within { border-color: var(--accent); color: var(--text); }
+.file-drop input { display: none; }
+.file-list { text-align: left; margin-top: 10px; font-size: 0.85rem; }
+.file-list div { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; color: var(--text); }
+.file-list div span:first-child { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.file-list span.ep { color: var(--text-dim); flex-shrink: 0; }
+.remove-file-btn {
+  width: auto; min-height: auto; flex-shrink: 0;
+  background: transparent; color: var(--text-dim);
+  padding: 2px 6px; font-size: 0.9rem;
+}
+.remove-file-btn:hover { color: var(--danger); }
+
+button {
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  padding: 13px 18px;
+  cursor: pointer;
+  width: 100%;
+  min-height: 48px;
+}
+button.primary { background: var(--accent); color: #06201d; }
+button.primary:hover { background: #63ddd2; }
+button.primary:disabled { background: var(--accent-dim); color: #0b2b27; cursor: not-allowed; }
+button.secondary { background: var(--surface-raised); color: var(--text); border: 1px solid var(--border); }
+button.secondary:hover { border-color: var(--accent); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  margin: 24px 0;
+}
+.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+
+.status-line { font-size: 0.85rem; min-height: 1.2em; margin-top: 10px; }
+.status-line.error { color: var(--danger); }
+.status-line.ok { color: var(--accent); }
+
+/* Room screen */
+.room-shell { max-width: 720px; width: 100%; padding: 16px 0 90px; }
+.room-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  gap: 10px;
+}
+.room-code-pill {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.room-code-pill b { letter-spacing: 0.06em; color: var(--accent); }
+.room-code-pill button {
+  width: auto; min-height: auto; padding: 4px 10px; font-size: 0.75rem;
+  background: var(--surface-raised); color: var(--text);
+}
+
+.player-wrap {
+  background: #000;
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 14px;
+  aspect-ratio: 16 / 9;
+}
+video { width: 100%; height: 100%; display: block; background: #000; }
+
+.controls {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+  transition: opacity 0.3s ease;
+}
+.controls button.ctrl {
+  width: 44px; height: 44px; min-height: 44px; padding: 0;
+  background: var(--surface-raised); color: var(--text);
+  font-size: 1.1rem; flex-shrink: 0;
+}
+.controls button.ctrl.play { background: var(--accent); color: #06201d; }
+
+/* The Messages drawer is fullscreen-only: in normal mode the page chat is a short
+   scroll away, and a drawer would just cover the player for no reason. */
+.controls button.ctrl.chat-toggle { display: none; }
+#player-container:fullscreen .controls button.ctrl.chat-toggle,
+#player-container:-webkit-full-screen .controls button.ctrl.chat-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+}
+
+.chat-panel { display: none; }
+.chat-panel--open {
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: min(320px, 76%);
+  background: rgba(23, 27, 34, 0.97);
+  border-left: 1px solid var(--border);
+  z-index: 20;
+  padding-top: max(10px, env(safe-area-inset-top, 0));
+  padding-bottom: max(10px, env(safe-area-inset-bottom, 0));
+}
+.chat-panel-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px 10px 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.chat-panel-title { font-size: 0.9rem; font-weight: 600; }
+.chat-panel-close {
+  width: 32px; min-height: 32px; height: 32px; padding: 0;
+  background: var(--surface-raised); color: var(--text); border: 1px solid var(--border);
+}
+.chat-panel-close:hover { border-color: var(--accent); color: var(--accent); }
+/* The page list is capped at 220px; the drawer has the player's full height. */
+.chat-panel .chat-box { flex: 1; max-height: none; padding: 12px 14px; }
+/* The existing input row is moved into the drawer while it is open, so it needs
+   the page's bottom margins trimmed. */
+.chat-panel .chat-input-row { margin-bottom: 0; padding: 0 14px 4px; }
+.chat-panel .chat-input-row input { margin-bottom: 8px; }
+.chat-panel .chat-input-row .primary { min-height: 44px; }
+/* In fullscreen the control bar overlays the bottom of the picture, so the drawer
+   stops above it — reading messages shouldn't cost you the pause button. Outside
+   fullscreen the bar sits under the video and the drawer takes the full height. */
+#player-container:fullscreen .chat-panel--open,
+#player-container:-webkit-full-screen .chat-panel--open { bottom: 72px; }
+
+#player-container:fullscreen,
+#player-container:-webkit-full-screen {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 10px;
+  background: #000;
+  padding: max(10px, env(safe-area-inset-top, 0)) max(10px, env(safe-area-inset-right, 0))
+           max(10px, env(safe-area-inset-bottom, 0)) max(10px, env(safe-area-inset-left, 0));
+  width: 100%;
+  height: 100%;
+}
+#player-container:fullscreen .player-wrap,
+#player-container:-webkit-full-screen .player-wrap {
+  flex: 1 1 0%;
+  min-height: 0;
+  aspect-ratio: auto;
+  border-radius: 0;
+  margin-bottom: 0;
+}
+#player-container:fullscreen video,
+#player-container:-webkit-full-screen video { object-fit: contain; }
+/* In fullscreen the controls are a bottom bar overlaying the video — NOT a
+   full-cover panel. top/left/right/bottom:0 combined with a background meant
+   they covered the entire picture. */
+#player-container:fullscreen .controls,
+#player-container:-webkit-full-screen .controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: auto;
+  flex: 0 0 auto;
+  margin: 0;
+  border-radius: 0;
+  border: none;
+  border-top: 1px solid var(--border);
+  background: rgba(23, 27, 34, 0.92);
+  max-width: 860px;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 12px 14px max(12px, env(safe-area-inset-bottom, 0));
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  z-index: 10;
+  /* JS drives opacity/display for the auto-hide; these keep the transitions
+     smooth instead of snapping. */
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  transform: translateY(0);
+}
+/* Hidden state, applied by showControls/hideControls. Uses visibility rather
+   than display:none so the transition can actually run, and so the element
+   stops taking pointer events while invisible. */
+#player-container:fullscreen .controls.controls--hidden,
+#player-container:-webkit-full-screen .controls.controls--hidden {
+  opacity: 0;
+  /* Slides fully out of the box. translateY(100%) alone can leave a sliver
+     visible because the bar has a bottom padding/border. */
+  transform: translateY(120%);
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 0.3s ease, transform 0.3s ease, visibility 0s linear 0.3s;
+}
+
+.seek {
+  flex: 1;
+  min-width: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+}
+.seek::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--accent); cursor: pointer;
+}
+.seek::-moz-range-thumb {
+  width: 18px; height: 18px; border: none; border-radius: 50%;
+  background: var(--accent); cursor: pointer;
+}
+.time { font-size: 0.75rem; color: var(--text-dim); min-width: 42px; text-align: center; flex-shrink: 0; }
+
+@media (max-width: 430px) {
+  .controls { gap: 8px; padding: 10px; }
+  .controls button.ctrl { width: 42px; height: 42px; }
+  .controls .time { min-width: 38px; }
+  /* Sits with the fullscreen button on the second row, beside the seek bar. */
+  .controls button.ctrl.chat-toggle { order: 9; }
+  .controls .seek { order: 10; flex-basis: 100%; margin: 2px 0 0; }
+  .controls button.ctrl.fullscreen { order: 11; }
+}
+
+.section-title { display: flex; justify-content: space-between; align-items: center; margin: 22px 0 10px; }
+.section-title h2 { margin: 0; }
+.badge { font-size: 0.7rem; color: var(--text-dim); background: var(--surface-raised); border-radius: 999px; padding: 2px 9px; }
+
+.episode-row {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 14px; margin-bottom: 8px; cursor: pointer;
+}
+.episode-row.active { border-color: var(--accent); }
+.episode-row:hover { border-color: var(--accent); }
+.episode-row .ep-num { color: var(--text-dim); font-size: 0.8rem; margin-right: 10px; }
+
+.participant-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; font-size: 0.9rem; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
+.dot.online { background: var(--accent); }
+.host-tag { font-size: 0.7rem; color: var(--accent); border: 1px solid var(--accent-dim); border-radius: 999px; padding: 1px 7px; }
+
+.toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+  background: var(--surface-raised); border: 1px solid var(--border);
+  color: var(--text); padding: 10px 16px; border-radius: 8px; font-size: 0.85rem;
+  opacity: 0; pointer-events: none; transition: opacity 0.2s;
+  /* Above the messages drawer, so an error or a "went offline" notice is never
+     hidden by the very panel the user opened to read. */
+  z-index: 30;
+}
+.toast.show { opacity: 1; }
+/* In fullscreen the toast centres over the video, and the control bar owns the
+   bottom ~60px of it — lift clear so a notification isn't hidden behind it. */
+#player-container:fullscreen .toast,
+#player-container:-webkit-full-screen .toast { bottom: 84px; }
+
+.chat-box {
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.chat-msg { font-size: 0.88rem; }
+.chat-msg b { color: var(--accent); margin-right: 6px; }
+.chat-msg span.text { color: var(--text); }
+.chat-input-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.chat-input-row input { margin-bottom: 0; flex: 1; min-width: 0; }
+
+@media (min-width: 560px) {
+  .room-shell { padding-top: 32px; }
+}

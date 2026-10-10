@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="SyncWatch.Tests/SyncWatch.Tests.csproj" />
+  <Project Path="SyncWatch/SyncWatch.csproj" />
+</Solution>

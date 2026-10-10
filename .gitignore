@@ -1,0 +1,22 @@
+## .NET build output
+bin/
+obj/
+
+## Visual Studio
+.vs/
+*.user
+*.suo
+
+## User-specific / secrets
+*.pfx
+*.p12
+*.mobileprovision
+
+## Uploaded media + local databases
+*.mp4
+*.db
+*.db-shm
+*.db-wal
+
+## Local config
+appsettings.Development.json
