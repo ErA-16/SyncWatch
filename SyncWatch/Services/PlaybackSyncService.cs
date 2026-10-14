@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using SyncWatch.Data;
 using SyncWatch.Hubs;
 using SyncWatch.Models;
@@ -68,7 +70,7 @@ namespace SyncWatch.Services
                             {
                                 break;
                             }
-                            catch (Exception ex)
+                            catch (System.Exception ex)
                             {
                                 _logger.LogError(ex, "Error sending playback update for Room {RoomId}.", state.RoomId);
                             }
@@ -79,7 +81,7 @@ namespace SyncWatch.Services
                 {
                     break;
                 }
-                catch (Exception ex)
+                catch (System.Exception ex)
                 {
                     _logger.LogError(ex, "Playback sync loop encountered an error.");
                 }
