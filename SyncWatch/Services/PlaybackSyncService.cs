@@ -1,9 +1,8 @@
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 using SyncWatch.Data;
 using SyncWatch.Hubs;
 using SyncWatch.Models;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 
 namespace SyncWatch.Services
 {
@@ -11,20 +10,21 @@ namespace SyncWatch.Services
     {
         private readonly IServiceProvider _serviceProvider;
         private readonly IHubContext<PlaybackHub> _hubContext;
+        private readonly TimeSpan _pollingInterval;
         private readonly ILogger<PlaybackSyncService> _logger;
 
-        public PlaybackSyncService(IServiceProvider serviceProvider, IHubContext<PlaybackHub> hubContext, ILogger<PlaybackSyncService> logger)
+        public PlaybackSyncService(IServiceProvider serviceProvider, IHubContext<PlaybackHub> hubContext, IConfiguration configuration, ILogger<PlaybackSyncService> logger)
         {
             _serviceProvider = serviceProvider;
             _hubContext = hubContext;
             _logger = logger;
+
+            var pollingIntervalSeconds = configuration.GetValue<int>("PlaybackSyncSettings:PollingIntervalSeconds", 5);
+            _pollingInterval = pollingIntervalSeconds > 0 ? TimeSpan.FromSeconds(pollingIntervalSeconds) : TimeSpan.FromSeconds(5);
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            // Consider making the interval configurable via IConfiguration
-            var delay = TimeSpan.FromSeconds(5);
-
             while (!stoppingToken.IsCancellationRequested)
             {
                 try
@@ -33,11 +33,18 @@ namespace SyncWatch.Services
                     {
                         var db = scope.ServiceProvider.GetRequiredService<DatabaseContext>();
 
-                        // Use AsNoTracking and project into a lightweight anonymous type so EF Core doesn't track entities
                         var playingStates = await db.PlaybackStates
                             .AsNoTracking()
                             .Where(s => s.Status == PlaybackStatus.Playing)
-                            .Select(s => new { s.RoomId, s.CurrentMovieId, s.Status, s.Position, s.UpdatedAt, s.Version })
+                            .Select(s => new
+                            {
+                                s.RoomId,
+                                s.CurrentMovieId,
+                                s.Status,
+                                s.Position,
+                                s.UpdatedAt,
+                                s.Version
+                            })
                             .ToListAsync(stoppingToken);
 
                         foreach (var state in playingStates)
@@ -59,35 +66,30 @@ namespace SyncWatch.Services
                             }
                             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                             {
-                                // Shutdown requested, break out
                                 break;
                             }
                             catch (Exception ex)
                             {
-                                // Log and continue with other states
-                                _logger.LogError(ex, "Error sending playback update for Room {RoomId}", state.RoomId);
+                                _logger.LogError(ex, "Error sending playback update for Room {RoomId}.", state.RoomId);
                             }
                         }
                     }
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
-                    // Expected during shutdown
                     break;
                 }
                 catch (Exception ex)
                 {
-                    // Querying the database or creating the scope failed; log and continue after delay
-                    _logger.LogError(ex, "PlaybackSyncService loop encountered an error. Will retry after delay.");
+                    _logger.LogError(ex, "Playback sync loop encountered an error.");
                 }
 
                 try
                 {
-                    await Task.Delay(delay, stoppingToken);
+                    await Task.Delay(_pollingInterval, stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
-                    // Shutdown requested, exit loop
                     break;
                 }
             }
